@@ -47,6 +47,8 @@ description: 申论材料精读、整卷解析、作答评分、诊断修改、�
 3. 调用一次 `finalize-analysis`，只传 `receipt_path`、完整 `text`，以及无参考答案时的 `reference_answer_text`。入口自动读取原始回执中的校验上下文并在成功后删除回执。
 4. 只发送 `approved_text`。
 
+正文变更须复校；字数只用最终值。
+
 解析不得读源码、Schema、命令帮助或单独查字数契约，不得创建回执以外的输入/输出临时文件、辅助脚本或日志。取得回执后绝不再次调用 `analyze-once`，不得手工重建、裁剪 `output_validation_context`。第一次最终校验失败时，保留同一回执并一次性修正完整错误列表；重试成功后自动删除，再失败即停止。
 
 `analyze-once` 回执会直接给出 `generated_answer_policy` 和 `validation_payload_requirements`。`reference_available=false` 时允许生成示范答案；有参考答案时不重复。`finalize-analysis` 原样复用这些字段，不为确认规则读取源码。
