@@ -42,22 +42,19 @@
 
 ### Claude Code
 
-```bash
-claude plugin marketplace add https://github.com/liuyuexi1987/shenlun-review-pro
-claude plugin install shenlun-review@shenlun-review
-```
+将下面这句话直接发给 Claude Code：
 
-安装后重启 Claude Code。
+```text
+请安装 https://github.com/liuyuexi1987/shenlun-review-pro 中的“申论复盘一体版”Claude Code 插件；安装完成后重启 Claude Code，并确认申论 Skill 和 MCP 工具已加载。
+```
 
 ### TRAE
 
-克隆本仓库后，在目标项目中执行：
+将下面这句话直接发给 TRAE：
 
-```bash
-python3 /path/to/shenlun-review-pro/integrations/trae/install.py --project /path/to/target-project
+```text
+请安装 https://github.com/liuyuexi1987/shenlun-review-pro 中的“申论复盘一体版”TRAE 插件到当前项目；完成后确认申论 Skill 和 MCP 工具已加载，且不要覆盖项目中已有的 MCP 配置。
 ```
-
-安装器只写入目标项目的 `.trae/skills/shenlun-review-pro` 和 `.trae/mcp.json`，会保留其他 MCP Server。
 
 ### 交给智能体安装
 
