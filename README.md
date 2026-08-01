@@ -4,6 +4,72 @@
 
 适用于归纳概括、综合分析、提出对策、贯彻执行、申发论述等题型；支持单题、整套试卷、参考答案对照、图片和 PDF。
 
+## 安装
+
+这是 GitHub 多智能体版本，包含完整 Skill、固定 MCP Server 和安全执行 Hook。RedSkill 商店版位于独立项目 `shenlun-review-skill`，不会被本仓库覆盖或更新。
+
+要求：Git、Python 3.10 或更高版本。
+
+### WorkBuddy
+
+复制并执行这一条命令：
+
+```bash
+d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
+```
+
+安装完成后，**完全退出并重启 WorkBuddy**，再新建一个任务。
+
+### Codex
+
+依次执行：
+
+```bash
+codex plugin marketplace add liuyuexi1987/shenlun-review-pro
+codex plugin add shenlun-review@shenlun-review
+```
+
+安装后新建一个任务即可使用。
+
+### 安装后先这样测试
+
+将下面这段直接发给 WorkBuddy 或 Codex：
+
+```text
+请确认已加载“申论复盘一体版”Skill，并检查申论 MCP 工具是否可用。
+随后用申论技能解析这道题：
+
+【题干】根据给定资料，概括主要做法。（10分）
+【给定资料】某地整合部门事项，建立一站式服务平台；工作人员主动上门代办，群众办事时间明显缩短。
+```
+
+正常情况下，智能体会识别申论 Skill，并用材料提取要点。之后就可以按“题干＋材料”解析，或按“题干＋材料＋作答”批改。
+
+### Claude Code
+
+```bash
+claude plugin marketplace add https://github.com/liuyuexi1987/shenlun-review-pro
+claude plugin install shenlun-review@shenlun-review
+```
+
+安装后重启 Claude Code。
+
+### TRAE
+
+克隆本仓库后，在目标项目中执行：
+
+```bash
+python3 /path/to/shenlun-review-pro/integrations/trae/install.py --project /path/to/target-project
+```
+
+安装器只写入目标项目的 `.trae/skills/shenlun-review-pro` 和 `.trae/mcp.json`，会保留其他 MCP Server。
+
+### 交给智能体安装
+
+只需告诉智能体：
+
+> 请安装 https://github.com/liuyuexi1987/shenlun-review-pro ，按 README 中与你当前平台对应的方式执行；安装后验证申论 Skill 和 `shenlun_grade_once`、`shenlun_validate_user_output` 两个 MCP 工具均已加载。
+
 ## 你可以怎么用
 
 ### 解析模式
@@ -112,72 +178,6 @@
 逐句点评我的答案，不要只给总评。
 这是整套试卷，先完整处理第 1 题。
 ```
-
-## 安装
-
-这是 GitHub 多智能体版本，包含完整 Skill、固定 MCP Server 和安全执行 Hook。RedSkill 商店版位于独立项目 `shenlun-review-skill`，不会被本仓库覆盖或更新。
-
-要求：Git、Python 3.10 或更高版本。
-
-### WorkBuddy
-
-复制并执行这一条命令：
-
-```bash
-d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
-```
-
-安装完成后，**完全退出并重启 WorkBuddy**，再新建一个任务。
-
-### Codex
-
-依次执行：
-
-```bash
-codex plugin marketplace add liuyuexi1987/shenlun-review-pro
-codex plugin add shenlun-review@shenlun-review
-```
-
-安装后新建一个任务即可使用。
-
-### 安装后先这样测试
-
-将下面这段直接发给 WorkBuddy 或 Codex：
-
-```text
-请确认已加载“申论复盘一体版”Skill，并检查申论 MCP 工具是否可用。
-随后用申论技能解析这道题：
-
-【题干】根据给定资料，概括主要做法。（10分）
-【给定资料】某地整合部门事项，建立一站式服务平台；工作人员主动上门代办，群众办事时间明显缩短。
-```
-
-正常情况下，智能体会识别申论 Skill，并用材料提取要点。之后就可以按“题干＋材料”解析，或按“题干＋材料＋作答”批改。
-
-### Claude Code
-
-```bash
-claude plugin marketplace add https://github.com/liuyuexi1987/shenlun-review-pro
-claude plugin install shenlun-review@shenlun-review
-```
-
-安装后重启 Claude Code。
-
-### TRAE
-
-克隆本仓库后，在目标项目中执行：
-
-```bash
-python3 /path/to/shenlun-review-pro/integrations/trae/install.py --project /path/to/target-project
-```
-
-安装器只写入目标项目的 `.trae/skills/shenlun-review-pro` 和 `.trae/mcp.json`，会保留其他 MCP Server。
-
-### 交给智能体安装
-
-只需告诉智能体：
-
-> 请安装 https://github.com/liuyuexi1987/shenlun-review-pro ，按 README 中与你当前平台对应的方式执行；安装后验证申论 Skill 和 `shenlun_grade_once`、`shenlun_validate_user_output` 两个 MCP 工具均已加载。
 
 ## 开发与验证
 
