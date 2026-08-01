@@ -6,8 +6,8 @@
 
 1. 一次准备完整对象，文本不写入代码或 shell。
 2. WorkBuddy 一次调用 `shenlun_grade_once`，对象直接作参数，由工具序列化。
-3. 根据回执生成一次最终正文。
-4. 一次调用 `shenlun_validate_user_output`，提交正文和原样上下文。
+3. 根据回执生成一次最终正文；评分成功后不得重建点池或再次调用评分入口。
+4. 一次调用 `shenlun_validate_user_output`，提交正文和原样上下文；校验失败只修正文并复校。
 5. 只发送 `approved_text`。
 
 ### 传输与止损

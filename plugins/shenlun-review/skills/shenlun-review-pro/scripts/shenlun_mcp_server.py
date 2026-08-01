@@ -6,18 +6,28 @@ that object itself and invokes only the fixed, deterministic grading runner.
 Natural-language content is never embedded in generated code or shell syntax.
 """
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
+from collections import OrderedDict
 from pathlib import Path
 
 
 SERVER_NAME = "shenlun_review_mcp"
-SERVER_VERSION = "1.3.2"
+SERVER_VERSION = "1.3.3"
 PROTOCOL_VERSION = "2024-11-05"
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 TIMEOUT_SECONDS = 70
+MAX_CACHED_GRADE_RECEIPTS = 64
+
+# A successful grade is the formal result for one immutable answer context.
+# Keep a small process-local cache so an agent cannot silently rebuild a point
+# pool and run the same question through the scorer again after it has already
+# received a receipt. This makes grade-once genuinely idempotent while still
+# allowing a changed answer or newly supplied reference answer to be graded.
+_GRADE_RECEIPTS = OrderedDict()
 
 
 COMMON_PROPERTIES = {
@@ -242,6 +252,45 @@ def parse_engine_output(stdout, stderr):
     return None
 
 
+def grade_request_fingerprint(arguments):
+    """Fingerprint the immutable input that defines one formal grading task."""
+    if not isinstance(arguments, dict):
+        return None
+    identity = {
+        key: arguments.get(key)
+        for key in (
+            "question_text",
+            "full_score",
+            "min_length",
+            "max_length",
+            "material_text",
+            "user_answer",
+            "reference_answers",
+            "reference_answer_set",
+            "expected_reference_answer_count",
+        )
+    }
+    encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def get_cached_grade_receipt(arguments):
+    fingerprint = grade_request_fingerprint(arguments)
+    if fingerprint is None or fingerprint not in _GRADE_RECEIPTS:
+        return None, fingerprint
+    _GRADE_RECEIPTS.move_to_end(fingerprint)
+    return _GRADE_RECEIPTS[fingerprint], fingerprint
+
+
+def cache_grade_receipt(fingerprint, result):
+    if not fingerprint or not isinstance(result, dict):
+        return
+    _GRADE_RECEIPTS[fingerprint] = result
+    _GRADE_RECEIPTS.move_to_end(fingerprint)
+    while len(_GRADE_RECEIPTS) > MAX_CACHED_GRADE_RECEIPTS:
+        _GRADE_RECEIPTS.popitem(last=False)
+
+
 def call_fixed_runner(command, arguments):
     if not isinstance(arguments, dict):
         return None, {
@@ -334,9 +383,17 @@ def handle_tool_call(params):
             True,
         )
 
+    fingerprint = None
+    if name == "shenlun_grade_once":
+        cached, fingerprint = get_cached_grade_receipt(arguments)
+        if cached is not None:
+            return tool_result(cached, False)
+
     result, error = call_fixed_runner(command, arguments)
     if error is not None:
         return tool_result({"ok": False, "error": error}, True)
+    if name == "shenlun_grade_once":
+        cache_grade_receipt(fingerprint, result)
     return tool_result(result, False)
 
 
@@ -351,7 +408,8 @@ def dispatch(request):
             "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
             "instructions": (
                 "申论普通批改使用 shenlun_grade_once，成稿使用 "
-                "shenlun_validate_user_output；不要通过终端调用评分脚本。"
+                "shenlun_validate_user_output；同题首次评分成功后会复用原回执，"
+                "不要重建点池或通过终端调用评分脚本。"
             ),
         }
     if method == "ping":

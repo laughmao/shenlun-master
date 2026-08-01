@@ -209,6 +209,45 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
                 point["user_quote"], "建立一站式服务平台，整合多个部门事项"
             )
             self.assertEqual(point["expansion_level"], "简略提及")
+
+            repooled = json.loads(json.dumps(payload, ensure_ascii=False))
+            repooled["points"][0].update({
+                "coverage_status": "完整覆盖",
+                "expansion_level": "充分展开",
+            })
+            process.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "shenlun_grade_once", "arguments": repooled},
+            }, ensure_ascii=False) + "\n")
+            process.stdin.flush()
+            duplicate = json.loads(process.stdout.readline())["result"]
+            self.assertFalse(duplicate["isError"], duplicate)
+            self.assertEqual(
+                duplicate["structuredContent"]["point_coverage"],
+                response["structuredContent"]["point_coverage"],
+            )
+            self.assertEqual(
+                duplicate["structuredContent"]["center_value"],
+                response["structuredContent"]["center_value"],
+            )
+
+            revised = json.loads(json.dumps(payload, ensure_ascii=False))
+            revised["user_answer"] += "补充说明。"
+            process.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "shenlun_grade_once", "arguments": revised},
+            }, ensure_ascii=False) + "\n")
+            process.stdin.flush()
+            revised_response = json.loads(process.stdout.readline())["result"]
+            self.assertFalse(revised_response["isError"], revised_response)
+            self.assertNotEqual(
+                revised_response["structuredContent"]["grade_once_receipt"]["ledger_id"],
+                response["structuredContent"]["grade_once_receipt"]["ledger_id"],
+            )
         finally:
             if process.stdin:
                 process.stdin.close()
