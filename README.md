@@ -1,21 +1,63 @@
 # 申论复盘一体版
 
-本仓库将两种发布形态明确分开：
+这是申论专用主项目，也是唯一开发源。项目不包含行测，也不再按“GitHub 版”“RedSkill 版”维护两套源码。
 
-- `redskill-version/`：申论 Skill 的唯一源码，可直接用于 RedSkill 发布。
-- `github-version/`：GitHub 完整版，包含 WorkBuddy、Codex、Claude Code、TRAE 的 Skill、MCP、Hook、安装脚本和测试。
-- `docs/`：发布测试提示词与项目交接文档，不参与安装。
+申论规则、评分引擎和 MCP 源码统一放在 `skills/shenlun-review-pro/`。WorkBuddy、Codex、Claude Code、TRAE 的完整接入包，以及渠道无关的独立 Skill，都从这份源码生成。
 
-请只在 `redskill-version/` 修改申论规则、评分引擎和 MCP 源码。运行下面的命令后，系统会自动生成 GitHub 版及各客户端插件中的 Skill 副本：
+## 目录
 
-```bash
-python3 github-version/scripts/build_integrations.py
+```text
+shenlun-review-pro/
+├── skills/shenlun-review-pro/          # 唯一 Skill 源码与单元测试
+├── integrations/workbuddy/             # WorkBuddy 完整插件市场
+├── integrations/codex/                 # Codex 原生插件
+├── integrations/claude-code/           # Claude Code 原生插件
+├── integrations/trae/                  # TRAE 安装器
+├── scripts/build_integrations.py        # 生成各客户端插件中的 Skill 副本
+├── scripts/export_standalone_skill.py   # 导出渠道无关的独立 Skill
+├── tests/                               # 跨平台与安装测试
+└── docs/                                # 测试提示词与交接文档
 ```
 
-## WorkBuddy 一键安装
+各插件内的 Skill 都是构建产物，不应手工修改。今后只修改 `skills/shenlun-review-pro/`。
+
+## 开发与校验
 
 ```bash
-d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/github-version/scripts/install_workbuddy.py"
+python3 scripts/build_integrations.py
+python3 -m unittest discover -s skills/shenlun-review-pro/tests -v
+python3 -m unittest discover -s tests -v
 ```
 
-更多平台安装和开发说明见 `github-version/README.md`。
+## 导出独立 Skill
+
+需要发布到 RedSkill 或其他支持 Skill 的平台时执行：
+
+```bash
+python3 scripts/export_standalone_skill.py
+```
+
+默认导出到与本项目并列的 `shenlun-review-skill/`。该目录是发布产物，不作为开发源；再次导出前会自动备份旧目录。
+
+## 平台接入
+
+| 平台 | 推荐形态 | 说明 |
+| --- | --- | --- |
+| WorkBuddy | 完整插件 | 同时提供 Skill、MCP 和拦截 Hook |
+| Codex | 原生插件 | 同时提供 Skill 和 MCP |
+| Claude Code | 原生插件 | 同时提供 Skill、MCP 和拦截 Hook |
+| TRAE | Skill + MCP | 安装器写入项目级 Skill 和 MCP 配置 |
+| RedSkill 等 | 独立 Skill | 使用 `shenlun-review-skill/` 导出目录 |
+
+- WorkBuddy：运行 `python3 scripts/install_workbuddy.py`。
+- Codex：使用 `integrations/codex/shenlun-review/`。
+- Claude Code：使用 `integrations/claude-code/shenlun-review/`。
+- TRAE：运行 `python3 integrations/trae/install.py --project <项目目录>`。
+
+### WorkBuddy 从 GitHub 一键安装
+
+```bash
+d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
+```
+
+安装后重启 WorkBuddy 或新建任务即可加载。
