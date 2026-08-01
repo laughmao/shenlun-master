@@ -1,29 +1,121 @@
 # 申论复盘一体版
 
-这是申论专用的 GitHub 多智能体版本，包含完整 Skill、固定 MCP Server 和安全执行 Hook。RedSkill 商店版位于独立项目 `shenlun-review-skill`，本仓库不会导出、覆盖或更新该目录。
+面向申论学习者的题目解析与作答批改助手。它会先拆清题干要求，再回到材料建立得分点，最后按考场答案的方式讲解、评分和修改。
 
-## 核心结构
+适用于归纳概括、综合分析、提出对策、贯彻执行、申发论述等题型；支持单题、整套试卷、参考答案对照、图片和 PDF。
+
+## 你可以怎么用
+
+### 解析模式
+
+适合只提供题目和材料、还没有自己的作答。
+
+- **有参考答案**：结合参考答案和原材料，分析题干、提取要点、讲解组织方法。
+- **无参考答案**：根据材料独立提取得分点，并给出示范答案。
 
 ```text
-shenlun-review-pro/
-├── .agents/plugins/marketplace.json       # Codex Git marketplace
-├── .claude-plugin/marketplace.json        # Claude Code marketplace
-├── plugins/shenlun-review/                 # 唯一完整插件源码
-│   ├── .codex-plugin/plugin.json
-│   ├── .claude-plugin/plugin.json
-│   ├── .codebuddy-plugin/plugin.json
-│   ├── config/                             # 各宿主 MCP 配置
-│   ├── hooks/                              # Claude / WorkBuddy Hook
-│   └── skills/shenlun-review-pro/          # 唯一 Skill、引擎和测试
-├── integrations/workbuddy/                 # WorkBuddy marketplace 模板
-├── integrations/trae/                      # TRAE 项目安装器
-├── scripts/install_workbuddy.py
-└── tests/
+用申论技能解析下面这道题。
+
+【题干】
+……
+
+【给定资料】
+……
 ```
 
-申论规则、评分引擎和 MCP 只维护在 `plugins/shenlun-review/skills/shenlun-review-pro/`。`dist/` 只是可选离线构建产物，不是安装前提。
+完整解析会讲清题干责任、题型判断、材料找点、同类合并、字数压缩、考场组织、易错点和示范答案。题目没有提供分值时，只解析，不擅自评分。
+
+### 批改模式
+
+适合已经提供题目、材料和自己的答案。
+
+- **有参考答案**：对照参考答案和材料，逐条批改，指出命中点、遗漏点和表达问题。
+- **无参考答案**：依据材料独立建立评分标准，分析答案质量并给出建议分。
+
+```text
+用申论技能批改下面的作答。
+
+【题干】
+……
+
+【给定资料】
+……
+
+【考生作答】
+……
+```
+
+批改会回到材料逐条核对：考生原句对应什么依据、命中是否完整、缺少哪些限定、怎样直接改写。最后才给出档位、档内上中下位、建议分数区间和置信度；这属于经验校准建议，不是官方固定扣分表。
+
+### 提供参考答案后批改
+
+参考答案可以帮助稳定点池，但不是唯一标准答案。推荐补充：
+
+```text
+【参考答案】
+……
+```
+
+系统会先把参考答案作为候选骨架，再回材料核验：参考答案遗漏的材料点会补回；同一功能被拆得过碎的内容会合并；考生即使没有使用参考答案原词，只要材料要点写对，仍会正常计入。
+
+### 整套试卷
+
+上传整套 PDF 或长文字后，直接说：
+
+```text
+这是整套申论试卷，先处理第 1 题。
+```
+
+之后可以继续说“解析第 2 题”或“批改第 2 题”。如果希望整卷逐题处理，请明确说“按题号逐题完整解析”。
+
+## 怎样发题最容易得到好结果
+
+### 文字题
+
+小题推荐使用这个结构：
+
+```text
+【题干】……
+【给定资料】……
+【参考答案】……（没有可省略）
+【考生作答】……（做解析时可省略）
+```
+
+### 图片和 PDF
+
+可以直接上传题目截图、答题纸照片、参考答案截图或整套 PDF。若只处理一道题，最好同时写明题号；手写字或图片看不清时，会标记待核对，不会凭猜测判定材料外内容或漏点。
+
+## 不同题型重点
+
+- **归纳概括**：先判断要概括的是做法、问题、效果还是启示，再合并同功能内容。
+- **综合分析**：完成“解释含义—分析关系或原因—结合材料论证—得出结论或做法”的链条。
+- **提出对策**：区分“提出措施”和“概括材料中已有做法”，避免把常识对策写进概括题。
+- **贯彻执行**：同时看文种、身份、对象、目的和题目明确要求的格式，不套固定模板。
+- **申发论述**：先拆关键词和关系，再看总论点、分论点、论据分析是否形成闭环。
+
+## 你会看到什么
+
+一次完整解析或批改，至少会回答：
+
+- 题目到底问什么，哪些词决定答题方向；
+- 核心要点分别来自哪段材料，哪些内容应合并或舍弃；
+- 考生写到了什么、还缺什么，以及怎样改最直接；
+- 答案是否混淆做法、结果和背景，是否写入材料外内容；
+- 最终档位、建议分数和优先改进方向。
+
+## 常用口令
+
+```text
+用申论技能解析这道题。
+用申论技能批改我的作答。
+参考下面这份答案批改，但请回材料核验点池。
+逐句点评我的答案，不要只给总评。
+这是整套试卷，先完整处理第 1 题。
+```
 
 ## 安装
+
+这是 GitHub 多智能体版本，包含完整 Skill、固定 MCP Server 和安全执行 Hook。RedSkill 商店版位于独立项目 `shenlun-review-skill`，不会被本仓库覆盖或更新。
 
 要求：Git、Python 3.10 或更高版本。
 
@@ -34,8 +126,6 @@ codex plugin marketplace add liuyuexi1987/shenlun-review-pro
 codex plugin add shenlun-review@shenlun-review
 ```
 
-完成后新建任务，显示名为“申论复盘一体版”。
-
 ### Claude Code
 
 ```bash
@@ -43,7 +133,7 @@ claude plugin marketplace add https://github.com/liuyuexi1987/shenlun-review-pro
 claude plugin install shenlun-review@shenlun-review
 ```
 
-完成后重启 Claude Code。
+安装后重启 Claude Code。
 
 ### WorkBuddy
 
@@ -51,7 +141,7 @@ claude plugin install shenlun-review@shenlun-review
 d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
 ```
 
-安装器会保留其他设置，禁用旧申论插件，并把重复的独立申论 Skill 移入可恢复备份。完成后必须完全退出并重启 WorkBuddy，再新建任务。
+安装器会保留其他设置，禁用旧申论插件，并将重复的独立申论 Skill 移入可恢复备份。完成后完全退出并重启 WorkBuddy，再新建任务。
 
 ### TRAE
 
@@ -63,7 +153,7 @@ python3 /path/to/shenlun-review-pro/integrations/trae/install.py --project /path
 
 安装器只写入目标项目的 `.trae/skills/shenlun-review-pro` 和 `.trae/mcp.json`，会保留其他 MCP Server。
 
-## 交给智能体安装
+### 交给智能体安装
 
 只需告诉智能体：
 
@@ -77,6 +167,8 @@ python3 -m unittest discover -s plugins/shenlun-review/skills/shenlun-review-pro
 python3 -m unittest discover -s tests -v
 ```
 
-可选离线包生成到 `dist/workbuddy/`、`dist/codex/shenlun-review/` 和 `dist/claude-code/shenlun-review/`。
+申论规则、评分引擎和 MCP 只维护在 `plugins/shenlun-review/skills/shenlun-review-pro/`。`dist/` 是可选离线构建产物，不是安装前提。
 
-Windows 用户可先手动克隆仓库，再用系统中的 Python 3 可执行文件运行安装器；README 中的 `mktemp` 一行适用于 macOS 和 Linux。
+## 使用边界
+
+申论评分没有统一公开的逐字逐点官方算法，建议分数用于定位问题和比较进步，不能替代真实阅卷分数。材料不完整、OCR 不清楚或参考答案与题目不匹配时，会保留不确定性，不为给出确定分数而编造材料依据。
