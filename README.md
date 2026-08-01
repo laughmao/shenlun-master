@@ -46,3 +46,11 @@ python3 -m unittest discover -s tests -v
 - TRAE：在目标项目执行 `python3 integrations/trae/install.py --project <项目目录>`，安装器会保留已有 MCP，并写入可靠的绝对路径。
 
 RedSkill 版本仍可只发布 `skills/shenlun-review-pro/`；其申论规则与完整版相同，只是不包含客户端插件负责的自动加载与 Hook 能力。
+
+### WorkBuddy 从 GitHub 一键安装
+
+```bash
+d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
+```
+
+该命令会安装完整的 Skill、MCP 与 Hook，并在修改 WorkBuddy 配置前自动保留备份。安装后重启 WorkBuddy 或新建任务即可加载。
