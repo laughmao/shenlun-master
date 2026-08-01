@@ -9,17 +9,18 @@
 ```text
 shenlun-review-pro/
 ├── skills/shenlun-review-pro/          # 唯一 Skill 源码与单元测试
-├── integrations/workbuddy/             # WorkBuddy 完整插件市场
-├── integrations/codex/                 # Codex 原生插件
-├── integrations/claude-code/           # Claude Code 原生插件
+├── integrations/workbuddy/             # WorkBuddy 轻量插件模板
+├── integrations/codex/                 # Codex 轻量插件模板
+├── integrations/claude-code/           # Claude Code 轻量插件模板
 ├── integrations/trae/                  # TRAE 安装器
 ├── scripts/build_integrations.py        # 生成各客户端插件中的 Skill 副本
 ├── scripts/export_standalone_skill.py   # 导出渠道无关的独立 Skill
 ├── tests/                               # 跨平台与安装测试
-└── docs/                                # 测试提示词与交接文档
+├── docs/                                # 测试提示词与交接文档
+└── dist/                                # 构建生成的完整安装包，不提交 Git
 ```
 
-各插件内的 Skill 都是构建产物，不应手工修改。今后只修改 `skills/shenlun-review-pro/`。
+`integrations/` 只保存清单、MCP 和 Hook 等轻量模板，不再重复保存完整 Skill。今后只修改 `skills/shenlun-review-pro/`；完整插件由构建器输出到 `dist/`。
 
 ## 开发与校验
 
@@ -28,6 +29,12 @@ python3 scripts/build_integrations.py
 python3 -m unittest discover -s skills/shenlun-review-pro/tests -v
 python3 -m unittest discover -s tests -v
 ```
+
+构建完成后得到：
+
+- `dist/workbuddy/`
+- `dist/codex/shenlun-review/`
+- `dist/claude-code/shenlun-review/`
 
 ## 导出独立 Skill
 
@@ -50,8 +57,8 @@ python3 scripts/export_standalone_skill.py
 | RedSkill 等 | 独立 Skill | 使用 `shenlun-review-skill/` 导出目录 |
 
 - WorkBuddy：运行 `python3 scripts/install_workbuddy.py`。
-- Codex：使用 `integrations/codex/shenlun-review/`。
-- Claude Code：使用 `integrations/claude-code/shenlun-review/`。
+- Codex：先构建，再使用 `dist/codex/shenlun-review/`。
+- Claude Code：先构建，再使用 `dist/claude-code/shenlun-review/`。
 - TRAE：运行 `python3 integrations/trae/install.py --project <项目目录>`。
 
 ### WorkBuddy 从 GitHub 一键安装

@@ -14,14 +14,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DIST = ROOT / "dist"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 SKILL = ROOT / "skills" / "shenlun-review-pro"
 SERVER = SKILL / "scripts" / "shenlun_mcp_server.py"
 GUARD = SKILL / "scripts" / "pretooluse_guard.py"
 GENERATED_SKILLS = (
-    ROOT / "integrations" / "workbuddy" / "plugins" / "shenlun-review-tools" / "skills" / "shenlun-review-pro",
-    ROOT / "integrations" / "codex" / "shenlun-review" / "skills" / "shenlun-review-pro",
-    ROOT / "integrations" / "claude-code" / "shenlun-review" / "skills" / "shenlun-review-pro",
+    DIST / "workbuddy" / "plugins" / "shenlun-review-tools" / "skills" / "shenlun-review-pro",
+    DIST / "codex" / "shenlun-review" / "skills" / "shenlun-review-pro",
+    DIST / "claude-code" / "shenlun-review" / "skills" / "shenlun-review-pro",
 )
 
 sys.path.insert(0, str(SKILL / "tests"))
@@ -45,6 +46,17 @@ def skill_hashes(path: Path) -> dict[str, str]:
 
 
 class CrossPlatformIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "build_integrations.py")],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr or completed.stdout)
+
     def test_generated_plugins_contain_the_exact_canonical_skill(self):
         expected = skill_hashes(SKILL)
         self.assertGreater(len(expected), 150)
@@ -53,12 +65,46 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
 
     def test_all_manifests_use_the_release_version(self):
         manifests = (
-            ROOT / "integrations" / "workbuddy" / "plugins" / "shenlun-review-tools" / ".codebuddy-plugin" / "plugin.json",
-            ROOT / "integrations" / "codex" / "shenlun-review" / ".codex-plugin" / "plugin.json",
-            ROOT / "integrations" / "claude-code" / "shenlun-review" / ".claude-plugin" / "plugin.json",
+            DIST / "workbuddy" / "plugins" / "shenlun-review-tools" / ".codebuddy-plugin" / "plugin.json",
+            DIST / "codex" / "shenlun-review" / ".codex-plugin" / "plugin.json",
+            DIST / "claude-code" / "shenlun-review" / ".claude-plugin" / "plugin.json",
         )
         for manifest in manifests:
             self.assertEqual(load_json(manifest)["version"], VERSION, manifest)
+
+    def test_integration_templates_do_not_duplicate_the_canonical_skill(self):
+        generated_paths = (
+            ROOT / "integrations" / "workbuddy" / "plugins" / "shenlun-review-tools" / "skills",
+            ROOT / "integrations" / "codex" / "shenlun-review" / "skills",
+            ROOT / "integrations" / "claude-code" / "shenlun-review" / "skills",
+        )
+        for path in generated_paths:
+            self.assertFalse(path.exists(), path)
+
+    def test_builder_refuses_to_write_into_integration_templates(self):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "build_integrations.py"),
+                "--output",
+                str(ROOT / "integrations"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("不能覆盖或进入源码目录", completed.stderr + completed.stdout)
+        self.assertFalse(
+            (
+                ROOT
+                / "integrations"
+                / "workbuddy"
+                / "plugins"
+                / "shenlun-review-tools"
+                / "skills"
+            ).exists()
+        )
 
     def test_standalone_skill_export_is_channel_neutral_and_recoverable(self):
         exporter = ROOT / "scripts" / "export_standalone_skill.py"
@@ -86,15 +132,15 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
     def test_client_configs_launch_the_bundled_generic_server(self):
         cases = (
             (
-                ROOT / "integrations" / "workbuddy" / "plugins" / "shenlun-review-tools" / ".mcp.json",
+                DIST / "workbuddy" / "plugins" / "shenlun-review-tools" / ".mcp.json",
                 "CODEBUDDY_PLUGIN_ROOT",
             ),
             (
-                ROOT / "integrations" / "codex" / "shenlun-review" / ".mcp.json",
+                DIST / "codex" / "shenlun-review" / ".mcp.json",
                 "CODEX_PLUGIN_ROOT",
             ),
             (
-                ROOT / "integrations" / "claude-code" / "shenlun-review" / ".mcp.json",
+                DIST / "claude-code" / "shenlun-review" / ".mcp.json",
                 "CLAUDE_PLUGIN_ROOT",
             ),
         )

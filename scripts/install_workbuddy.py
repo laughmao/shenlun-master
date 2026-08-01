@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from build_integrations import build_workbuddy, validate_versions
+
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_MARKETPLACE = ROOT / "integrations" / "workbuddy"
 MARKETPLACE_NAME = "shenlun-review-local"
 PLUGIN_KEY = "shenlun-review-tools@shenlun-review-local"
 LEGACY_PLUGIN_KEY = "shenlun-review-tools@gongkao-review-local"
@@ -62,17 +64,18 @@ def replace_marketplace(source: Path, destination: Path, backup_root: Path, stam
 def main() -> int:
     args = parse_args()
     workbuddy_home = args.workbuddy_home.expanduser().resolve()
-    if not SOURCE_MARKETPLACE.is_dir():
-        raise SystemExit(f"安装包不完整：缺少 {SOURCE_MARKETPLACE}")
+    validate_versions()
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     destination = workbuddy_home / "plugins" / "marketplaces" / MARKETPLACE_NAME
-    replace_marketplace(
-        SOURCE_MARKETPLACE,
-        destination,
-        workbuddy_home / "backups" / "shenlun-review",
-        stamp,
-    )
+    with tempfile.TemporaryDirectory(prefix="shenlun-workbuddy-") as temp_dir:
+        source_marketplace = build_workbuddy(Path(temp_dir) / "marketplace")
+        replace_marketplace(
+            source_marketplace,
+            destination,
+            workbuddy_home / "backups" / "shenlun-review",
+            stamp,
+        )
 
     known_path = workbuddy_home / "plugins" / "known_marketplaces.json"
     known = load_object(known_path, {})
