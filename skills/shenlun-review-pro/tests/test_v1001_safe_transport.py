@@ -95,10 +95,14 @@ class V1001SafeTransportTests(unittest.TestCase):
         skill_text = SKILL_FILE.read_text(encoding="utf-8")
         runtime_text = RUNTIME_CONTRACT.read_text(encoding="utf-8")
         for text in (skill_text, runtime_text):
+            self.assertIn("shenlun_grade_once", text)
+            self.assertIn("shenlun_validate_user_output", text)
             self.assertIn("safe_review_runner.py grade-once", text)
             self.assertIn("python3 - <<'PY'", text)
+            self.assertIn("未加载 MCP 时", text)
             self.assertIn("第二次失败", text)
             self.assertIn("JSON 解析失败", text)
+            self.assertIn("不得改其他已通过字段", text)
 
 
 if __name__ == "__main__":

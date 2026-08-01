@@ -142,14 +142,32 @@ class V0386NormalizationBoundaryTests(unittest.TestCase):
             "该地建立一站式服务平台",
             "材料中完全没有的政策",
         ]
-        self.assert_rejected(payload, "material_evidence")
+        result = self.assert_rejected(
+            payload, "points[0].material_evidence[1] is not found"
+        )
+        errors = result.get("detail", {}).get("errors", [])
+        self.assertFalse(any("material_evidence[0]" in item for item in errors))
 
     def test_reverse_order_ellipsis_shorthand_is_rejected(self):
         payload = compact_payload()
         payload["points"][0]["material_evidence"] = (
             "整合多个部门事项……该地建立一站式服务平台"
         )
-        self.assert_rejected(payload, "material_evidence")
+        self.assert_rejected(
+            payload,
+            "uses shorthand fragments in a different material order",
+        )
+
+    def test_reverse_order_array_items_remain_valid_independent_excerpts(self):
+        payload = compact_payload()
+        payload["points"][0]["material_evidence"] = [
+            "整合多个部门事项",
+            "该地建立一站式服务平台",
+        ]
+        code, result = run_engine("grade-once", payload)
+        self.assertEqual(
+            code, 0, json.dumps(result, ensure_ascii=False, indent=2)
+        )
 
     def test_invalid_coverage_status_is_rejected(self):
         payload = compact_payload()

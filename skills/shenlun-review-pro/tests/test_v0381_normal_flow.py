@@ -85,8 +85,12 @@ class V0381NormalFlowTests(unittest.TestCase):
             SKILL_DIR / "references" / "contracts" / "grade-once-runtime.md"
         ).read_text(encoding="utf-8")
         self.assertIn("普通批改执行锁", skill_text)
+        self.assertIn("shenlun_grade_once", skill_text)
+        self.assertIn("shenlun_validate_user_output", skill_text)
         self.assertIn("safe_review_runner.py grade-once", skill_text)
         self.assertIn("禁止用 `python3 - <<'PY'`", skill_text)
+        self.assertIn("未加载 MCP 时", skill_text)
+        self.assertIn("共用同一引擎和评分口径", skill_text)
         self.assertIn("第二次失败或同错再现立即停止", skill_text)
         self.assertIn("普通批改的首选契约", contract_text)
         self.assertIn("受控读取完整契约", contract_text)

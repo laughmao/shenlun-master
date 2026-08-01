@@ -1,0 +1,9 @@
+{
+  "name": "shenlun-review",
+  "version": "1.2.0",
+  "description": "申论材料解析、作答批改、结构化评分与安全执行插件。",
+  "author": {
+    "name": "jans"
+  },
+  "license": "MIT"
+}

@@ -4,17 +4,19 @@
 
 ## 执行
 
-1. 一次准备完整对象并序列化为 JSON；文本不得写入代码。
-2. 标准输入调用：`python3 <skill_dir>/scripts/safe_review_runner.py grade-once`。
+1. 一次准备完整对象，文本不写入代码或 shell。
+2. WorkBuddy 一次调用 `shenlun_grade_once`，对象直接作参数，由工具序列化。
 3. 根据回执生成一次最终正文。
-4. 将正文和 `output_validation_context` 标准输入调用：`python3 <skill_dir>/scripts/safe_review_runner.py validate-user-output`。
+4. 一次调用 `shenlun_validate_user_output`，提交正文和原样上下文。
 5. 只发送 `approved_text`。
 
 ### 传输与止损
 
-禁止 `python3 - <<'PY'`、`python -c`、`eval/exec`、临时 `.py` 或 shell 拼接 JSON。优先用结构化标准输入；不可用时，仅允许宿主写一个唯一的 UTF-8 JSON，以 `--input` 调用后删除。
+工具不可见时先搜索；仍未加载或宿主不支持 MCP，就走安全入口。禁止 `python3 - <<'PY'`、`python -c`、临时代码/JSON或 shell 拼输入；插件守卫会拒绝旧路径。
 
-第一次失败按完整错误列表统一修正后只重试一次；第二次失败或同错再现即停止。脚本启动、JSON 解析失败和 60 秒超时都计入次数；不得查源码、Schema、`--help`、方法卡或旧命令链。
+未加载 MCP 时，用 `python3 <skill_dir>/scripts/safe_review_runner.py grade-once` 与 `validate-user-output`，只传结构化标准输入；它与 MCP 共用同一引擎和口径。
+
+首次失败只改错误列表所指路径，统一修正后重试一次；不得改其他已通过字段。第二次失败或同错再现即停止。脚本启动、JSON 解析失败和 60 秒超时都计入次数；不得查源码、Schema、`--help`、方法卡或旧命令链。
 
 ## 最小输入
 
@@ -74,7 +76,7 @@
 
 - `coverage_status`：只用 `完整覆盖` / `等义表达` / `部分覆盖` / `未覆盖` / `超出材料`。
 - 非“未覆盖”必须给 `user_quote`；“未覆盖”可留空。
-- `material_evidence` 可是连续原句、多个独立连续片段的数组，或按原文顺序用省略号连接的短句。所有片段都必须在材料中找到。
+- `material_evidence` 把连续原文分作数组元素，元素独立且无顺序要求。省略号只用于同一原文省略中段，片段须保持原序；跨段、跨人物或顺序不确定时用数组。所有片段都须在材料中找到。
 - OCR 不清晰时标记 `ocr_status="uncertain"` 和说明，不得因模糊直接判未覆盖/材料外。
 - 材料外表述放入 `extra_material_claims`，只作局部准确性记录，不扩充点池、不吞掉已覆盖内容。
 

@@ -1,20 +1,22 @@
 # grade-once 紧凑批改契约
 
-`grade-once` 是普通“批改后解析”的唯一评分入口。调用者只负责完成 OCR、阅读材料并给出必要的语义判断；稳定 ID、题型原型、方法路由、TaskSpec、analysis-result、score-ledger、材料范围和账本校验均由命令内部一次生成。普通批改必须经 `safe_review_runner.py` 传输 JSON，不得生成临时 Python，不得读取源码、Schema 或命令帮助来试探字段；入口失败只允许根据一次错误列表统一修正一次。`reference_discovery` 可省略、写成状态字符串或只提供部分字段，入口会按本轮是否存在参考答案自动归一化。
+`grade-once` 是普通“批改后解析”的唯一评分入口。调用者只负责完成 OCR、阅读材料并给出必要的语义判断；稳定 ID、题型原型、方法路由、TaskSpec、analysis-result、score-ledger、材料范围和账本校验均由命令内部一次生成。已加载结构化工具时，经 `shenlun_grade_once` 提交 JSON 对象；序列化和引擎调用由工具内部完成。不得生成临时 Python、临时 JSON，不得读取源码、Schema 或命令帮助来试探字段；入口失败只允许根据一次错误列表统一修正一次。`reference_discovery` 可省略、写成状态字符串或只提供部分字段，入口会按本轮是否存在参考答案自动归一化。
 
-固定调用方式如下，JSON 通过结构化标准输入传入；不得把自然语言嵌入 Python 字符串，也不得再查 `--help`、argparse、源码或 Schema 确认接口：
+MCP 可用时固定调用如下；不得把自然语言嵌入 Python 字符串，也不得再查 `--help`、argparse、源码或 Schema 确认接口：
+
+- 评分：结构化工具 `shenlun_grade_once`，完整评分对象直接作为工具参数。
+- 成稿：结构化工具 `shenlun_validate_user_output`，正文和 `output_validation_context` 直接作为工具参数。
+
+若工具未直接显示，先用工具搜索查找 `shenlun_grade_once`。仍未加载或宿主不支持 MCP 时，使用下方安全入口；安装完整版插件后，PreToolUse 守卫会拒绝直接调用评分脚本、Python heredoc 和旧临时文件。
+
+RedSkill 独立版或其他未加载 MCP 的宿主使用兼容入口：
 
 ```bash
 python3 <skill_dir>/scripts/safe_review_runner.py grade-once
-```
-
-评分成功后，最终回复固定调用：
-
-```bash
 python3 <skill_dir>/scripts/safe_review_runner.py validate-user-output
 ```
 
-宿主无法提供结构化标准输入时，仅允许通过结构化文件写入能力创建一个本轮唯一的 UTF-8 JSON 文件，并向安全入口传 `--input`；不得用 heredoc Python、`python -c`、`eval/exec`、shell 重定向、`echo` 或 `printf` 拼装输入。英文引号、换行、反斜杠、`$()` 和反引号必须保持为 JSON 数据。脚本启动失败、JSON 解析失败和 60 秒超时均算一次失败；第二次失败或同错再现立即停止。
+兼容入口和 MCP 共用同一引擎、契约与评分口径。它只接受结构化标准输入；不得用 heredoc Python、`python -c`、`eval/exec`、临时文件、shell 重定向、`echo` 或 `printf` 拼装输入。中文/英文引号、换行、反斜杠、`$()` 和反引号必须保持为 JSON 数据。脚本启动失败、JSON 解析失败和 60 秒超时均算一次失败；第二次失败或同错再现立即停止。
 
 ## 通用输入
 
@@ -78,7 +80,7 @@ python3 <skill_dir>/scripts/safe_review_runner.py validate-user-output
 每点必须提供：
 
 - `point_text`：归纳后的得分功能。
-- `material_evidence`：材料中的文字证据。可填写一段连续原文，也可填写由多个连续原文片段组成的数组。数组中的片段是相互独立的证据摘录，各片段只需分别出现在材料中，不要求按材料顺序排列；若用省略号把多个片段压成一条字符串，才表示省略中间内容并按材料出现顺序核验。所有片段都必须在材料中找到，不能用分段容错掩盖材料外内容。
+- `material_evidence`：材料中的文字证据。优先填写一段连续原文或由多个连续原文片段组成的数组。数组中的片段是相互独立的证据摘录，各片段只需分别出现在材料中，不要求按材料顺序排列；跨段、跨人物或顺序不确定时必须使用数组。只有表示同一原文中省略中段时，才用省略号把多个片段压成一条字符串，并按材料出现顺序核验。所有片段都必须在材料中找到，不能用分段容错掩盖材料外内容。
 - `coverage_status`：`完整覆盖`、`部分覆盖`、`等义表达`、`未覆盖`或`超出材料`。
 - `user_quote`：除`未覆盖`外，必须是考生作答中的文字证据。
 - `ocr_status`：可选，使用 `clear` 或 `uncertain`。标为 `uncertain` 时必须填写 `ocr_uncertainty_note`，不得据此把该点判为 `未覆盖` 或 `超出材料`；应补充清晰原稿或按部分覆盖/待核对处理。
@@ -151,7 +153,7 @@ match_type 可省略，引擎按覆盖状态生成一致值。部分覆盖和未
 
 普通批改禁止读取引擎源码、枚举 Schema、调用多个 `--help`、列脚本目录、搜索内部函数或创建临时构造脚本。以上行为属于开发调试，不属于普通用户批改。
 
-入口失败时，只允许依据第一次返回的完整错误列表统一修正输入并重试一次；第二次仍失败必须停止并报告门禁问题，不得继续试错、换字段、拆链路或改走旧命令。普通运行不向用户展示中间调试动作。
+入口失败时，只允许修改第一次完整错误列表明确指出的路径，统一修正后重试一次；不得预防性改动其他已通过字段。第二次仍失败必须停止并报告门禁问题，不得继续试错、换字段、拆链路或改走旧命令。普通运行不向用户展示中间调试动作。
 
 普通批改只执行：
 

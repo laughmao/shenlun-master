@@ -54,7 +54,7 @@ CONFIG_DIR = Path(__file__).resolve().parent.parent / "references" / "config"
 SQL_SCHEMA = Path(__file__).resolve().parent / "state-schema.sql"
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 SKILL_FILE = Path(__file__).resolve().parent.parent / "SKILL.md"
-ENGINE_VERSION = "1.0.1"
+ENGINE_VERSION = "1.2.0"
 
 EXIT_SUCCESS = 0
 EXIT_INPUT_ERROR = 2
@@ -214,6 +214,54 @@ def _canonical_evidence(evidence, scope_text):
         return None, []
     anchor = max(fragments, key=lambda item: len(_norm_for_match(item)))
     return anchor, fragments
+
+
+def _evidence_string_support_errors(evidence, scope_text, field_path):
+    """Explain why one evidence string cannot be verified.
+
+    Keep diagnostics structural: identify the failing field/index and failure
+    class without echoing source or answer text into logs.
+    """
+    if not isinstance(evidence, str) or not evidence.strip():
+        return [f"{field_path} must be a non-empty string"]
+    evidence = evidence.strip()
+    if _evidence_in_scope(evidence, scope_text):
+        return []
+    fragments = [
+        item.strip() for item in _EVIDENCE_FRAGMENT_SPLIT_RE.split(evidence)
+        if item.strip()
+    ]
+    if len(fragments) < 2:
+        return [f"{field_path} is not found in material_text"]
+    missing = [
+        str(index + 1) for index, fragment in enumerate(fragments)
+        if not _evidence_in_scope(fragment, scope_text)
+    ]
+    if missing:
+        return [
+            f"{field_path} contains shorthand fragment(s) not found in "
+            f"material_text at position(s) {', '.join(missing)}"
+        ]
+    return [
+        f"{field_path} uses shorthand fragments in a different material order; "
+        "keep ellipsis fragments in source order or use separate array items "
+        "for independent excerpts"
+    ]
+
+
+def _material_evidence_support_errors(evidence, scope_text, field_path):
+    """Return precise, reusable validation errors for material evidence."""
+    if isinstance(evidence, list):
+        if not evidence:
+            return [f"{field_path} must be a non-empty string or array"]
+        errors = []
+        for index, item in enumerate(evidence):
+            item_path = f"{field_path}[{index}]"
+            errors.extend(
+                _evidence_string_support_errors(item, scope_text, item_path)
+            )
+        return errors
+    return _evidence_string_support_errors(evidence, scope_text, field_path)
 
 
 def _qualifier_has_semantic_trace(qualifier, answer_text):
@@ -3136,15 +3184,21 @@ def _validate_reference_calibration(calibration, reference_answer_set,
             continue
         material_evidence = item.get("material_evidence")
         if disposition in {"included", "merged"}:
-            if not isinstance(material_evidence, str) or not material_evidence.strip():
-                errors.append(f"{prefix}.material_evidence must be non-empty for {disposition}")
-            elif not _evidence_in_scope(material_evidence, material_text):
-                errors.append(f"{prefix}.material_evidence not found in material_text")
+            errors.extend(
+                _material_evidence_support_errors(
+                    material_evidence,
+                    material_text,
+                    f"{prefix}.material_evidence",
+                )
+            )
         elif material_evidence not in (None, ""):
-            if not isinstance(material_evidence, str):
-                errors.append(f"{prefix}.material_evidence must be string/null")
-            elif not _evidence_in_scope(material_evidence, material_text):
-                errors.append(f"{prefix}.material_evidence not found in material_text")
+            errors.extend(
+                _material_evidence_support_errors(
+                    material_evidence,
+                    material_text,
+                    f"{prefix}.material_evidence",
+                )
+            )
         mapped = item.get("mapped_point_ids", [])
         if not isinstance(mapped, list):
             errors.append(f"{prefix}.mapped_point_ids must be an array")
@@ -4771,8 +4825,13 @@ def _grade_once_semantic_preflight_errors(data, prototype):
         point_ids.add(point_id)
         if not isinstance(point.get("point_text"), str) or not point.get("point_text", "").strip():
             errors.append(f"{prefix}.point_text must be non-empty")
-        if not _evidence_fragments_in_scope(point.get("material_evidence"), material_text):
-            errors.append(f"{prefix}.material_evidence is not supported by material_text")
+        errors.extend(
+            _material_evidence_support_errors(
+                point.get("material_evidence"),
+                material_text,
+                f"{prefix}.material_evidence",
+            )
+        )
         coverage = point.get("coverage_status")
         if coverage not in VALID_COVERAGE_ALL or coverage == "超出材料":
             errors.append(f"{prefix}.coverage_status must be a normal material coverage status")
