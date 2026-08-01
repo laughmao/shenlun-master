@@ -12,24 +12,19 @@
 
 ### WorkBuddy
 
-复制并执行这一条命令：
+将下面这句话直接发给 WorkBuddy：
 
-```bash
-d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
+```text
+请安装 https://github.com/liuyuexi1987/shenlun-review-pro 中的“申论复盘一体版”WorkBuddy 完整插件；安装完成后完全退出并重启 WorkBuddy，再新建任务确认申论 Skill 和 MCP 工具已加载。
 ```
-
-安装完成后，**完全退出并重启 WorkBuddy**，再新建一个任务。
 
 ### Codex
 
-依次执行：
+将下面这句话直接发给 Codex：
 
-```bash
-codex plugin marketplace add liuyuexi1987/shenlun-review-pro
-codex plugin add shenlun-review@shenlun-review
+```text
+请安装 https://github.com/liuyuexi1987/shenlun-review-pro 中的“申论复盘一体版”Codex 插件；安装完成后新建任务，确认申论 Skill 和 MCP 工具已加载。
 ```
-
-安装后新建一个任务即可使用。
 
 ### 安装后先这样测试
 
