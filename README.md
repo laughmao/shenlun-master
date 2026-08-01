@@ -119,12 +119,40 @@
 
 要求：Git、Python 3.10 或更高版本。
 
+### WorkBuddy
+
+复制并执行这一条命令：
+
+```bash
+d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
+```
+
+安装完成后，**完全退出并重启 WorkBuddy**，再新建一个任务。
+
 ### Codex
+
+依次执行：
 
 ```bash
 codex plugin marketplace add liuyuexi1987/shenlun-review-pro
 codex plugin add shenlun-review@shenlun-review
 ```
+
+安装后新建一个任务即可使用。
+
+### 安装后先这样测试
+
+将下面这段直接发给 WorkBuddy 或 Codex：
+
+```text
+请确认已加载“申论复盘一体版”Skill，并检查申论 MCP 工具是否可用。
+随后用申论技能解析这道题：
+
+【题干】根据给定资料，概括主要做法。（10分）
+【给定资料】某地整合部门事项，建立一站式服务平台；工作人员主动上门代办，群众办事时间明显缩短。
+```
+
+正常情况下，智能体会识别申论 Skill，并用材料提取要点。之后就可以按“题干＋材料”解析，或按“题干＋材料＋作答”批改。
 
 ### Claude Code
 
@@ -134,14 +162,6 @@ claude plugin install shenlun-review@shenlun-review
 ```
 
 安装后重启 Claude Code。
-
-### WorkBuddy
-
-```bash
-d="$(mktemp -d)" && git clone --depth 1 https://github.com/liuyuexi1987/shenlun-review-pro.git "$d/repo" && python3 "$d/repo/scripts/install_workbuddy.py"
-```
-
-安装器会保留其他设置，禁用旧申论插件，并将重复的独立申论 Skill 移入可恢复备份。完成后完全退出并重启 WorkBuddy，再新建任务。
 
 ### TRAE
 
