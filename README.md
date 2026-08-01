@@ -40,7 +40,7 @@ python3 -m unittest discover -s tests -v
 
 ## 本地接入
 
-- WorkBuddy：把 `integrations/workbuddy/` 添加为本地插件市场，启用 `shenlun-review-tools@shenlun-review-local`，然后重启或新建任务。
+- WorkBuddy：运行 `python3 scripts/install_workbuddy.py`，安装器会复制完整插件、注册本地市场并启用插件，然后重启或新建任务。
 - Codex：把 `integrations/codex/shenlun-review/` 放入本地插件市场后安装；新建任务后加载 Skill 与 MCP。
 - Claude Code：复制 `integrations/claude-code/shenlun-review/` 到 `~/.claude/skills/shenlun-review/`，或用 `claude --plugin-dir` 临时测试。
 - TRAE：在目标项目执行 `python3 integrations/trae/install.py --project <项目目录>`，安装器会保留已有 MCP，并写入可靠的绝对路径。
