@@ -56,12 +56,6 @@
 请安装 https://github.com/liuyuexi1987/shenlun-review-pro 中的“申论复盘一体版”TRAE 插件到当前项目；完成后确认申论 Skill 和 MCP 工具已加载，且不要覆盖项目中已有的 MCP 配置。
 ```
 
-### 交给智能体安装
-
-只需告诉智能体：
-
-> 请安装 https://github.com/liuyuexi1987/shenlun-review-pro ，按 README 中与你当前平台对应的方式执行；安装后验证申论 Skill 和 `shenlun_grade_once`、`shenlun_validate_user_output` 两个 MCP 工具均已加载。
-
 ## 你可以怎么用
 
 ### 解析模式
