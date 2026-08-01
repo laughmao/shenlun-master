@@ -7111,14 +7111,18 @@ def _check_method_library():
     else:
         add("task-prototypes directory or index not found")
 
-    allowed_extensions = {".md", ".json", ".py", ".sql", ".html", ".css"}
+    allowed_extensions = {".md", ".json", ".py", ".sql", ".html", ".css", ".yaml", ".yml"}
+    allowed_extensionless_files = {"LICENSE", "NOTICE"}
     for path in package_dir.rglob("*"):
         if path.is_dir() and path.name == "__pycache__":
             add(f"Forbidden cache directory: {path.relative_to(package_dir)}")
         elif path.is_file():
             if path.suffix == ".pyc":
                 add(f"Forbidden bytecode file: {path.relative_to(package_dir)}")
-            elif path.suffix.lower() not in allowed_extensions:
+            elif (
+                path.suffix.lower() not in allowed_extensions
+                and path.name not in allowed_extensionless_files
+            ):
                 add(f"Unsupported release file type: {path.relative_to(package_dir)}")
 
     return {
