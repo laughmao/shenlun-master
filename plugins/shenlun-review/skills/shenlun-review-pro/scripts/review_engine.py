@@ -54,7 +54,7 @@ CONFIG_DIR = Path(__file__).resolve().parent.parent / "references" / "config"
 SQL_SCHEMA = Path(__file__).resolve().parent / "state-schema.sql"
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 SKILL_FILE = Path(__file__).resolve().parent.parent / "SKILL.md"
-ENGINE_VERSION = "1.3.1"
+ENGINE_VERSION = "1.3.2"
 
 EXIT_SUCCESS = 0
 EXIT_INPUT_ERROR = 2
@@ -214,6 +214,58 @@ def _canonical_evidence(evidence, scope_text):
         return None, []
     anchor = max(fragments, key=lambda item: len(_norm_for_match(item)))
     return anchor, fragments
+
+
+def _source_excerpt_for_normalized_match(evidence, scope_text):
+    """Return the exact source excerpt matched by an evidence skeleton.
+
+    The grading ledger must retain a quote copied from the user's actual
+    answer.  Callers, however, often vary only punctuation, whitespace, or
+    use ellipsis shorthand.  Resolve such a verified skeleton back to the
+    original answer text rather than preserving the caller's synthetic quote.
+    """
+    if not isinstance(evidence, str) or not isinstance(scope_text, str):
+        return None
+    evidence = evidence.strip()
+    if not evidence:
+        return None
+    if evidence in scope_text:
+        return evidence
+    target = _norm_for_match(evidence)
+    if not target:
+        return None
+    normalized_parts = []
+    source_positions = []
+    for position, char in enumerate(scope_text):
+        normalized_char = _norm_for_match(char)
+        if not normalized_char:
+            continue
+        normalized_parts.append(normalized_char)
+        source_positions.extend([position] * len(normalized_char))
+    normalized_scope = "".join(normalized_parts)
+    start = normalized_scope.find(target)
+    if start < 0:
+        return None
+    end = start + len(target) - 1
+    return scope_text[source_positions[start]:source_positions[end] + 1].strip()
+
+
+def _canonical_user_quote(quote, user_answer):
+    """Return one exact answer quote for a verified caller-supplied excerpt.
+
+    Preserve an exact quote when possible.  For an ellipsis shorthand, retain
+    the longest independently verified fragment instead of expanding omitted
+    text: that keeps quote-length scoring conservative and never fabricates
+    a user expression.
+    """
+    fragments = _evidence_fragments_in_scope(quote, user_answer)
+    if not fragments:
+        return None, []
+    direct = _source_excerpt_for_normalized_match(quote, user_answer)
+    if direct:
+        return direct, fragments
+    anchor = max(fragments, key=lambda item: len(_norm_for_match(item)))
+    return _source_excerpt_for_normalized_match(anchor, user_answer), fragments
 
 
 def _evidence_string_support_errors(evidence, scope_text, field_path):
@@ -1429,6 +1481,13 @@ _EXPANSION_RATE = {
     "仅列标题": 0.35,
     "未提及": 0.0,
 }
+
+# ``部分展开`` is a common natural-language label, but is not one of the
+# score ledger's five deterministic levels.  Remove it during normalization
+# and let the existing coverage-status default choose the conservative level.
+# Do not guess mappings for arbitrary unknown labels: those still fail the
+# aggregated preflight, because changing them could change scoring semantics.
+_DERIVE_EXPANSION_ALIASES = {"部分展开"}
 
 # 覆盖状态 × 赋分模式 → 赔率（当无 expansion_level 时使用）
 _COVERAGE_RATE_BY_MODE = {
@@ -3731,6 +3790,26 @@ def _normalize_grade_once_data(data, prototype):
                     "canonicalize_verified_fragments",
                     {"fragment_count": len(fragments)},
                 )
+        original_quote = point.get("user_quote")
+        if isinstance(original_quote, str) and original_quote.strip():
+            canonical_quote, quote_fragments = _canonical_user_quote(
+                original_quote, normalized.get("user_answer", "")
+            )
+            if canonical_quote and canonical_quote != original_quote:
+                point["user_quote"] = canonical_quote
+                _record_input_normalization(
+                    audit,
+                    f"points[{index}].user_quote",
+                    "canonicalize_verified_answer_quote",
+                    {"fragment_count": len(quote_fragments)},
+                )
+        if point.get("expansion_level") in _DERIVE_EXPANSION_ALIASES:
+            point.pop("expansion_level")
+            _record_input_normalization(
+                audit,
+                f"points[{index}].expansion_level",
+                "derive_from_coverage_status",
+            )
 
     calibration = normalized.get("reference_calibration")
     if isinstance(calibration, dict):
@@ -3755,7 +3834,22 @@ def _normalize_grade_once_data(data, prototype):
                     )
 
     for index, claim in enumerate(normalized.get("extra_material_claims") or []):
-        if isinstance(claim, dict) and not claim.get("deduction_owner"):
+        if not isinstance(claim, dict):
+            continue
+        original_quote = claim.get("user_quote")
+        if isinstance(original_quote, str) and original_quote.strip():
+            canonical_quote, quote_fragments = _canonical_user_quote(
+                original_quote, normalized.get("user_answer", "")
+            )
+            if canonical_quote and canonical_quote != original_quote:
+                claim["user_quote"] = canonical_quote
+                _record_input_normalization(
+                    audit,
+                    f"extra_material_claims[{index}].user_quote",
+                    "canonicalize_verified_answer_quote",
+                    {"fragment_count": len(quote_fragments)},
+                )
+        if not claim.get("deduction_owner"):
             claim["deduction_owner"] = _default_accuracy_dimension(question_type)
             _record_input_normalization(
                 audit, f"extra_material_claims[{index}].deduction_owner",
@@ -4835,6 +4929,12 @@ def _grade_once_semantic_preflight_errors(data, prototype):
         coverage = point.get("coverage_status")
         if coverage not in VALID_COVERAGE_ALL or coverage == "超出材料":
             errors.append(f"{prefix}.coverage_status must be a normal material coverage status")
+        expansion = point.get("expansion_level")
+        if expansion is not None and expansion not in _EXPANSION_RATE:
+            errors.append(
+                f"{prefix}.expansion_level must be omitted or one of "
+                f"{sorted(_EXPANSION_RATE)}"
+            )
         user_quote = point.get("user_quote")
         if coverage in {"完整覆盖", "部分覆盖", "等义表达"}:
             if not isinstance(user_quote, str) or not user_quote.strip():

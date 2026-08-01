@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 SERVER_NAME = "shenlun_review_mcp"
-SERVER_VERSION = "1.3.1"
+SERVER_VERSION = "1.3.2"
 PROTOCOL_VERSION = "2024-11-05"
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 TIMEOUT_SECONDS = 70
@@ -71,7 +71,21 @@ COMMON_PROPERTIES = {
                             "items": {"type": "string", "minLength": 1},
                         },
                     ],
-                }
+                },
+                "user_quote": {
+                    "type": "string",
+                    "description": (
+                        "考生作答中的证据。标点、空白或省略写法会在不改变"
+                        "语义的前提下回定位为考生原句；不能填材料外内容。"
+                    ),
+                },
+                "expansion_level": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "可省略；如填写，仅用“充分展开、基本展开、简略提及、"
+                        "仅列标题、未提及”。不确定时省略，由工具按覆盖状态推导。"
+                    ),
+                },
             },
             "additionalProperties": True,
         },
@@ -103,7 +117,8 @@ TOOLS = [
         "description": (
             "普通申论批改唯一评分入口。直接提交由题干、材料、考生作答、"
             "点池和对应题型审核组成的 JSON 对象；工具自动安全序列化并"
-            "调用确定性评分引擎。不得改用 Bash 或临时脚本。"
+            "调用确定性评分引擎，并归一可验证的引用与可省略的展开档位。"
+            "不得改用 Bash 或临时脚本。"
         ),
         "inputSchema": {
             "type": "object",

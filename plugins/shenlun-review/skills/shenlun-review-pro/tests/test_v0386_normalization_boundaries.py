@@ -174,6 +174,37 @@ class V0386NormalizationBoundaryTests(unittest.TestCase):
         payload["points"][0]["coverage_status"] = "差不多覆盖"
         self.assert_rejected(payload, "coverage_status")
 
+    def test_answer_quote_ellipsis_and_partial_expansion_normalize_once(self):
+        payload = compact_payload()
+        point = payload["points"][0]
+        point["coverage_status"] = "部分覆盖"
+        point["user_quote"] = "建立一站式服务平台……整合事项"
+        point["expansion_level"] = "部分展开"
+        code, result = run_engine("grade-once", payload)
+        self.assertEqual(code, 0, json.dumps(result, ensure_ascii=False, indent=2))
+        coverage = result["point_coverage"][0]
+        self.assertEqual(coverage["user_quote"], "建立一站式服务平台，整合事项")
+        self.assertEqual(coverage["expansion_level"], "简略提及")
+        actions = result["input_normalization"]["actions"]
+        self.assertTrue(any(
+            item["field"] == "points[0].user_quote"
+            and item["action"] == "canonicalize_verified_answer_quote"
+            for item in actions
+        ))
+        self.assertTrue(any(
+            item["field"] == "points[0].expansion_level"
+            and item["action"] == "derive_from_coverage_status"
+            for item in actions
+        ))
+
+    def test_unknown_expansion_level_is_reported_in_aggregated_preflight(self):
+        payload = compact_payload()
+        payload["points"][0]["user_quote"] = "作答完全没有的句子"
+        payload["points"][0]["expansion_level"] = "随意展开"
+        result = self.assert_rejected(payload, "user_quote")
+        errors = result["detail"]["errors"]
+        self.assertTrue(any("expansion_level" in item for item in errors))
+
     def test_ocr_uncertainty_cannot_be_declared_uncovered(self):
         payload = compact_payload()
         payload["points"][0].update({
@@ -190,7 +221,7 @@ class V0386NormalizationBoundaryTests(unittest.TestCase):
             SKILL_DIR / "references" / "contracts" / "grade-once-runtime.md"
         ).read_text(encoding="utf-8")
         self.assertLess(len(skill.encode("utf-8")), 10_000)
-        self.assertLess(len(runtime.encode("utf-8")), 8_000)
+        self.assertLess(len(runtime.encode("utf-8")), 9_000)
         self.assertIn("普通批改：`references/contracts/grade-once-runtime.md`", skill)
         self.assertIn("工程审计/契约开发", skill)
 

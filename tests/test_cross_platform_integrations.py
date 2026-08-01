@@ -185,6 +185,11 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
             )
             payload["material_text"] += special
             payload["user_answer"] += special
+            payload["points"][0].update({
+                "coverage_status": "部分覆盖",
+                "user_quote": "建立一站式服务平台……整合多个部门事项",
+                "expansion_level": "部分展开",
+            })
             call = {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -199,6 +204,11 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
             self.assertTrue(
                 response["structuredContent"]["grade_once_receipt"]["single_compile"]
             )
+            point = response["structuredContent"]["point_coverage"][0]
+            self.assertEqual(
+                point["user_quote"], "建立一站式服务平台，整合多个部门事项"
+            )
+            self.assertEqual(point["expansion_level"], "简略提及")
         finally:
             if process.stdin:
                 process.stdin.close()
