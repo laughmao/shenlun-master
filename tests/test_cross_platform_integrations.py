@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Cross-client packaging tests for the standalone Shenlun project."""
+"""Cross-client packaging tests for the GitHub Shenlun plugin."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -16,11 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-SKILL = ROOT / "skills" / "shenlun-review-pro"
+PLUGIN = ROOT / "plugins" / "shenlun-review"
+SKILL = PLUGIN / "skills" / "shenlun-review-pro"
 SERVER = SKILL / "scripts" / "shenlun_mcp_server.py"
 GUARD = SKILL / "scripts" / "pretooluse_guard.py"
 GENERATED_SKILLS = (
-    DIST / "workbuddy" / "plugins" / "shenlun-review-tools" / "skills" / "shenlun-review-pro",
+    DIST / "workbuddy" / "plugins" / "shenlun-review" / "skills" / "shenlun-review-pro",
     DIST / "codex" / "shenlun-review" / "skills" / "shenlun-review-pro",
     DIST / "claude-code" / "shenlun-review" / "skills" / "shenlun-review-pro",
 )
@@ -37,9 +39,12 @@ def skill_hashes(path: Path) -> dict[str, str]:
     result = {}
     for file_path in sorted(path.rglob("*")):
         relative = file_path.relative_to(path)
-        if not file_path.is_file() or "tests" in relative.parts or "__pycache__" in relative.parts:
-            continue
-        if file_path.suffix == ".pyc":
+        if (
+            not file_path.is_file()
+            or "tests" in relative.parts
+            or "__pycache__" in relative.parts
+            or file_path.suffix == ".pyc"
+        ):
             continue
         result[str(relative)] = hashlib.sha256(file_path.read_bytes()).hexdigest()
     return result
@@ -57,6 +62,44 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
         if completed.returncode != 0:
             raise RuntimeError(completed.stderr or completed.stdout)
 
+    def test_committed_plugin_is_complete_for_all_three_hosts(self):
+        required = (
+            PLUGIN / ".codex-plugin" / "plugin.json",
+            PLUGIN / ".claude-plugin" / "plugin.json",
+            PLUGIN / ".codebuddy-plugin" / "plugin.json",
+            SKILL / "SKILL.md",
+            SERVER,
+        )
+        for path in required:
+            self.assertTrue(path.is_file(), path)
+        self.assertFalse((ROOT / "integrations" / "codex").exists())
+        self.assertFalse((ROOT / "integrations" / "claude-code").exists())
+
+    def test_repo_marketplaces_point_to_the_committed_plugin(self):
+        codex = load_json(ROOT / ".agents" / "plugins" / "marketplace.json")
+        self.assertEqual(codex["name"], "shenlun-review")
+        self.assertEqual(
+            codex["plugins"][0]["source"]["path"], "./plugins/shenlun-review"
+        )
+        self.assertEqual(
+            codex["plugins"][0]["policy"],
+            {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+        )
+        claude = load_json(ROOT / ".claude-plugin" / "marketplace.json")
+        self.assertEqual(claude["name"], "shenlun-review")
+        self.assertEqual(claude["plugins"][0]["source"], "./plugins/shenlun-review")
+
+    def test_skill_uses_machine_id_and_chinese_display_name(self):
+        text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        frontmatter = text.split("---", 2)[1]
+        name_match = re.search(r"(?m)^name:\s*(.+)$", frontmatter)
+        self.assertIsNotNone(name_match)
+        self.assertEqual(name_match.group(1).strip(), "shenlun-review-pro")
+        self.assertRegex(name_match.group(1).strip(), r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+        metadata = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        self.assertIn('display_name: "申论复盘一体版"', metadata)
+        self.assertIn("$shenlun-review-pro", metadata)
+
     def test_generated_plugins_contain_the_exact_canonical_skill(self):
         expected = skill_hashes(SKILL)
         self.assertGreater(len(expected), 150)
@@ -65,29 +108,23 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
 
     def test_all_manifests_use_the_release_version(self):
         manifests = (
-            DIST / "workbuddy" / "plugins" / "shenlun-review-tools" / ".codebuddy-plugin" / "plugin.json",
+            PLUGIN / ".codex-plugin" / "plugin.json",
+            PLUGIN / ".claude-plugin" / "plugin.json",
+            PLUGIN / ".codebuddy-plugin" / "plugin.json",
+            DIST / "workbuddy" / "plugins" / "shenlun-review" / ".codebuddy-plugin" / "plugin.json",
             DIST / "codex" / "shenlun-review" / ".codex-plugin" / "plugin.json",
             DIST / "claude-code" / "shenlun-review" / ".claude-plugin" / "plugin.json",
         )
         for manifest in manifests:
             self.assertEqual(load_json(manifest)["version"], VERSION, manifest)
 
-    def test_integration_templates_do_not_duplicate_the_canonical_skill(self):
-        generated_paths = (
-            ROOT / "integrations" / "workbuddy" / "plugins" / "shenlun-review-tools" / "skills",
-            ROOT / "integrations" / "codex" / "shenlun-review" / "skills",
-            ROOT / "integrations" / "claude-code" / "shenlun-review" / "skills",
-        )
-        for path in generated_paths:
-            self.assertFalse(path.exists(), path)
-
-    def test_builder_refuses_to_write_into_integration_templates(self):
+    def test_builder_refuses_to_write_into_source_roots(self):
         completed = subprocess.run(
             [
                 sys.executable,
                 str(ROOT / "scripts" / "build_integrations.py"),
                 "--output",
-                str(ROOT / "integrations"),
+                str(ROOT / "plugins"),
             ],
             text=True,
             capture_output=True,
@@ -95,57 +132,24 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
         )
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("不能覆盖或进入源码目录", completed.stderr + completed.stdout)
-        self.assertFalse(
-            (
-                ROOT
-                / "integrations"
-                / "workbuddy"
-                / "plugins"
-                / "shenlun-review-tools"
-                / "skills"
-            ).exists()
-        )
 
-    def test_standalone_skill_export_is_channel_neutral_and_recoverable(self):
-        exporter = ROOT / "scripts" / "export_standalone_skill.py"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            destination = Path(temp_dir) / "shenlun-review-skill"
-            command = [
-                sys.executable,
-                str(exporter),
-                "--destination",
-                str(destination),
-            ]
-            first = subprocess.run(command, text=True, capture_output=True, check=False)
-            self.assertEqual(first.returncode, 0, first.stderr)
-            self.assertEqual(skill_hashes(destination), skill_hashes(SKILL))
-            self.assertFalse((destination / "tests").exists())
-
-            marker = destination / "local-note.txt"
-            marker.write_text("保留旧发布目录", encoding="utf-8")
-            second = subprocess.run(command, text=True, capture_output=True, check=False)
-            self.assertEqual(second.returncode, 0, second.stderr)
-            backups = list(destination.parent.glob("shenlun-review-skill.backup.*"))
-            self.assertEqual(len(backups), 1)
-            self.assertEqual((backups[0] / "local-note.txt").read_text(encoding="utf-8"), "保留旧发布目录")
-
-    def test_client_configs_launch_the_bundled_generic_server(self):
+    def test_client_configs_use_host_specific_plugin_roots(self):
         cases = (
+            (PLUGIN / ".mcp.json", "CODEX_PLUGIN_ROOT", True),
+            (PLUGIN / "config" / "claude" / ".mcp.json", "CLAUDE_PLUGIN_ROOT", False),
             (
-                DIST / "workbuddy" / "plugins" / "shenlun-review-tools" / ".mcp.json",
+                PLUGIN / "config" / "workbuddy" / ".mcp.json",
                 "CODEBUDDY_PLUGIN_ROOT",
-            ),
-            (
-                DIST / "codex" / "shenlun-review" / ".mcp.json",
-                "CODEX_PLUGIN_ROOT",
-            ),
-            (
-                DIST / "claude-code" / "shenlun-review" / ".mcp.json",
-                "CLAUDE_PLUGIN_ROOT",
+                True,
             ),
         )
-        for config, root_variable in cases:
-            server = load_json(config)["mcpServers"]["shenlun-review"]
+        for config, root_variable, wrapped in cases:
+            payload = load_json(config)
+            server = (
+                payload["mcpServers"]["shenlun-review"]
+                if wrapped
+                else payload["shenlun-review"]
+            )
             self.assertEqual(server["command"], "python3")
             self.assertIn(root_variable, server["args"][0])
             self.assertTrue(server["args"][0].endswith("scripts/shenlun_mcp_server.py"))
@@ -204,64 +208,63 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
             if process.stderr:
                 process.stderr.close()
 
-    def test_guard_blocks_direct_grading_but_allows_normal_tests(self):
-        unsafe = {
+    def test_guard_blocks_raw_engine_but_allows_safe_runner_fallback(self):
+        request = {
             "hook_event_name": "PreToolUse",
             "tool_name": "Bash",
-            "tool_input": {
-                "command": "python3 review_engine.py grade-once --input grade_once_input.json"
-            },
+            "tool_input": {"command": "python3 review_engine.py grade-once"},
         }
         blocked = subprocess.run(
             [sys.executable, str(GUARD)],
-            input=json.dumps(unsafe, ensure_ascii=False),
+            input=json.dumps(request, ensure_ascii=False),
             text=True,
             capture_output=True,
             check=False,
         )
         self.assertEqual(blocked.returncode, 0, blocked.stderr)
         self.assertEqual(
-            load := json.loads(blocked.stdout)["hookSpecificOutput"]["permissionDecision"],
+            json.loads(blocked.stdout)["hookSpecificOutput"]["permissionDecision"],
             "deny",
-            load,
         )
 
-        normal = dict(unsafe)
-        normal["tool_input"] = {"command": "python3 -m unittest discover -s tests -v"}
+        request["tool_input"] = {
+            "command": "python3 safe_review_runner.py grade-once"
+        }
         allowed = subprocess.run(
             [sys.executable, str(GUARD)],
-            input=json.dumps(normal, ensure_ascii=False),
+            input=json.dumps(request, ensure_ascii=False),
             text=True,
             capture_output=True,
             check=False,
         )
         self.assertEqual(json.loads(allowed.stdout), {})
 
-    def test_trae_installer_preserves_other_servers_and_uses_absolute_paths(self):
+    def test_trae_installer_is_repeatable_and_preserves_other_servers(self):
         installer = ROOT / "integrations" / "trae" / "install.py"
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             mcp_path = project / ".trae" / "mcp.json"
             mcp_path.parent.mkdir(parents=True)
             mcp_path.write_text(
-                json.dumps(
-                    {"mcpServers": {"existing": {"command": "existing-server"}}},
-                    ensure_ascii=False,
-                ),
+                json.dumps({"mcpServers": {"existing": {"command": "existing"}}}),
                 encoding="utf-8",
             )
-            completed = subprocess.run(
-                [sys.executable, str(installer), "--project", str(project)],
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
+            for _ in range(3):
+                completed = subprocess.run(
+                    [sys.executable, str(installer), "--project", str(project)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
             payload = load_json(mcp_path)
             self.assertIn("existing", payload["mcpServers"])
             server = payload["mcpServers"]["shenlun-review"]
             self.assertTrue(Path(server["args"][0]).is_absolute())
             self.assertTrue(Path(server["env"]["SHENLUN_SKILL_DIR"]).is_dir())
+            backups = list((project / ".trae" / "backups").iterdir())
+            self.assertGreaterEqual(len(backups), 4)
+            self.assertEqual(len(backups), len({path.name for path in backups}))
 
 
 if __name__ == "__main__":

@@ -54,7 +54,7 @@ CONFIG_DIR = Path(__file__).resolve().parent.parent / "references" / "config"
 SQL_SCHEMA = Path(__file__).resolve().parent / "state-schema.sql"
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 SKILL_FILE = Path(__file__).resolve().parent.parent / "SKILL.md"
-ENGINE_VERSION = "1.2.0"
+ENGINE_VERSION = "1.3.0"
 
 EXIT_SUCCESS = 0
 EXIT_INPUT_ERROR = 2

@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_SKILL = ROOT / "skills" / "shenlun-review-pro"
+SOURCE_SKILL = ROOT / "plugins" / "shenlun-review" / "skills" / "shenlun-review-pro"
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +43,10 @@ def backup(path: Path, backup_root: Path, stamp: str) -> None:
         return
     backup_root.mkdir(parents=True, exist_ok=True)
     destination = backup_root / f"{path.name}.{stamp}"
+    index = 1
+    while destination.exists():
+        destination = backup_root / f"{path.name}.{stamp}.{index}"
+        index += 1
     if path.is_dir():
         shutil.copytree(path, destination)
     else:
@@ -58,7 +62,7 @@ def main() -> int:
     destination = trae_dir / "skills" / "shenlun-review-pro"
     mcp_path = trae_dir / "mcp.json"
     backup_root = trae_dir / "backups"
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
     backup(destination, backup_root, stamp)
     backup(mcp_path, backup_root, stamp)

@@ -1,5 +1,5 @@
 {
-  "description": "阻止申论普通批改绕过结构化 MCP 工具",
+  "description": "阻止申论普通批改绕过结构化 MCP 工具或安全入口",
   "hooks": {
     "PreToolUse": [
       {

@@ -1,9 +1,9 @@
 ---
-name: 申论复盘一体版
+name: shenlun-review-pro
 description: 申论材料精读、整卷解析、作答评分、诊断修改、二稿对比和学情追踪的一体化助手。用户上传或发送任何申论试卷、题目、材料、作答、参考答案、PDF、图片或文档时都应使用，即使用户没有额外输入“申论解析”。触发词包括"申论复盘""批改申论""申论解析""给这份作答评分""申论审题""提取材料要点""对照参考答案""修改二稿""申论学情报告"。
 ---
 
-# 申论复盘一体版 Skill v1.2.0
+# 申论复盘一体版 Skill v1.3.0
 
 ## 第一铁律：完整正文直发
 
@@ -118,7 +118,7 @@ description: 申论材料精读、整卷解析、作答评分、诊断修改、�
 - 解析路由：`references/analysis-core.md`；按题型仅读 `references/protocols/` 中对应一份。
 - PDF、图片、OCR 与题号定位：`references/input-boundary.md`。
 - 用户可见文风：`references/output-style.md`。
-- 字段与发布完整性：`references/contracts/`、`references/schema/`，仅开发调试时读取。
+- 字段与发布完整性：`references/contracts/`，仅开发调试时读取。
 
 ## 失败与降级
 

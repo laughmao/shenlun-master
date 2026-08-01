@@ -16,10 +16,12 @@ INSTALLER = ROOT / "scripts" / "install_workbuddy.py"
 
 
 class WorkBuddyInstallerTests(unittest.TestCase):
-    def test_installer_preserves_settings_and_registers_complete_plugin(self):
+    def test_installer_migrates_legacy_entries_and_registers_complete_plugin(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             workbuddy_home = Path(temp_dir) / ".workbuddy"
-            workbuddy_home.mkdir()
+            legacy_skill = workbuddy_home / "skills" / "申论复盘一体版"
+            legacy_skill.mkdir(parents=True)
+            (legacy_skill / "SKILL.md").write_text("legacy", encoding="utf-8")
             (workbuddy_home / "settings.json").write_text(
                 json.dumps(
                     {
@@ -27,6 +29,7 @@ class WorkBuddyInstallerTests(unittest.TestCase):
                         "enabledPlugins": {
                             "another-plugin@example": True,
                             "shenlun-review-tools@gongkao-review-local": True,
+                            "shenlun-review-tools@shenlun-review-local": True,
                         },
                     }
                 ),
@@ -51,21 +54,38 @@ class WorkBuddyInstallerTests(unittest.TestCase):
             self.assertFalse(
                 settings["enabledPlugins"]["shenlun-review-tools@gongkao-review-local"]
             )
-            self.assertTrue(
+            self.assertFalse(
                 settings["enabledPlugins"]["shenlun-review-tools@shenlun-review-local"]
+            )
+            self.assertTrue(
+                settings["enabledPlugins"]["shenlun-review@shenlun-review-local"]
             )
 
             markets = json.loads(
                 (workbuddy_home / "plugins" / "known_marketplaces.json").read_text()
             )
             installed = Path(markets["shenlun-review-local"]["installLocation"])
-            plugin = installed / "plugins" / "shenlun-review-tools"
+            plugin = installed / "plugins" / "shenlun-review"
             self.assertTrue((plugin / ".codebuddy-plugin" / "plugin.json").is_file())
             self.assertTrue(
-                (plugin / "skills" / "shenlun-review-pro" / "scripts" / "shenlun_mcp_server.py").is_file()
+                (
+                    plugin
+                    / "skills"
+                    / "shenlun-review-pro"
+                    / "scripts"
+                    / "shenlun_mcp_server.py"
+                ).is_file()
             )
+            self.assertFalse(legacy_skill.exists())
+            archived = (
+                workbuddy_home
+                / "backups"
+                / "shenlun-review"
+                / "legacy-skills"
+            )
+            self.assertTrue(any(archived.iterdir()))
 
-    def test_reinstall_creates_recoverable_backup(self):
+    def test_three_rapid_installs_create_unique_recoverable_backups(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             workbuddy_home = Path(temp_dir) / ".workbuddy"
             command = [
@@ -74,10 +94,13 @@ class WorkBuddyInstallerTests(unittest.TestCase):
                 "--workbuddy-home",
                 str(workbuddy_home),
             ]
-            self.assertEqual(subprocess.run(command, check=False).returncode, 0)
-            self.assertEqual(subprocess.run(command, check=False).returncode, 0)
+            for _ in range(3):
+                completed = subprocess.run(command, text=True, capture_output=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
             backups = workbuddy_home / "backups" / "shenlun-review"
-            self.assertTrue(any(backups.iterdir()))
+            entries = [path for path in backups.iterdir() if path.is_dir()]
+            self.assertGreaterEqual(len(entries), 2)
+            self.assertEqual(len(entries), len({path.name for path in entries}))
 
 
 if __name__ == "__main__":

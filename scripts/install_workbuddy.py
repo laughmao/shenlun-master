@@ -13,10 +13,13 @@ from pathlib import Path
 from build_integrations import build_workbuddy, validate_versions
 
 
-ROOT = Path(__file__).resolve().parents[1]
 MARKETPLACE_NAME = "shenlun-review-local"
-PLUGIN_KEY = "shenlun-review-tools@shenlun-review-local"
-LEGACY_PLUGIN_KEY = "shenlun-review-tools@gongkao-review-local"
+PLUGIN_KEY = "shenlun-review@shenlun-review-local"
+LEGACY_PLUGIN_KEYS = (
+    "shenlun-review-tools@gongkao-review-local",
+    "shenlun-review-tools@shenlun-review-local",
+)
+LEGACY_SKILL_NAMES = ("申论复盘一体版", "shenlun-review-pro")
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,26 +42,62 @@ def load_object(path: Path, default: dict) -> dict:
     return payload
 
 
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    index = 1
+    while True:
+        candidate = path.with_name(f"{path.name}.{index}")
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
 def write_json(path: Path, payload: dict, stamp: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
-        shutil.copy2(path, path.with_name(f"{path.name}.bak.{stamp}"))
-    path.write_text(
+        shutil.copy2(path, unique_path(path.with_name(f"{path.name}.bak.{stamp}")))
+    staging = unique_path(path.with_name(f".{path.name}.tmp.{stamp}"))
+    staging.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    staging.replace(path)
 
 
-def replace_marketplace(source: Path, destination: Path, backup_root: Path, stamp: str) -> None:
-    if destination.exists():
-        backup_root.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(destination), str(backup_root / f"{MARKETPLACE_NAME}.{stamp}"))
+def replace_marketplace(
+    source: Path, destination: Path, backup_root: Path, stamp: str
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        source,
-        destination,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
+    staging = unique_path(destination.with_name(f".{destination.name}.tmp.{stamp}"))
+    shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    backup: Path | None = None
+    try:
+        if destination.exists():
+            backup_root.mkdir(parents=True, exist_ok=True)
+            backup = unique_path(backup_root / f"{MARKETPLACE_NAME}.{stamp}")
+            shutil.move(str(destination), str(backup))
+        staging.rename(destination)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging)
+        if backup is not None and backup.exists() and not destination.exists():
+            shutil.move(str(backup), str(destination))
+        raise
+
+
+def archive_legacy_skills(workbuddy_home: Path, stamp: str) -> list[Path]:
+    archived = []
+    backup_root = workbuddy_home / "backups" / "shenlun-review" / "legacy-skills"
+    for name in LEGACY_SKILL_NAMES:
+        source = workbuddy_home / "skills" / name
+        if not source.exists():
+            continue
+        backup_root.mkdir(parents=True, exist_ok=True)
+        destination = unique_path(backup_root / f"{name}.{stamp}")
+        shutil.move(str(source), str(destination))
+        archived.append(destination)
+    return archived
 
 
 def main() -> int:
@@ -66,7 +105,7 @@ def main() -> int:
     workbuddy_home = args.workbuddy_home.expanduser().resolve()
     validate_versions()
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     destination = workbuddy_home / "plugins" / "marketplaces" / MARKETPLACE_NAME
     with tempfile.TemporaryDirectory(prefix="shenlun-workbuddy-") as temp_dir:
         source_marketplace = build_workbuddy(Path(temp_dir) / "marketplace")
@@ -94,14 +133,18 @@ def main() -> int:
     enabled = settings.setdefault("enabledPlugins", {})
     if not isinstance(enabled, dict):
         raise ValueError(f"{settings_path} 的 enabledPlugins 必须是对象")
-    if LEGACY_PLUGIN_KEY in enabled:
-        enabled[LEGACY_PLUGIN_KEY] = False
+    for legacy_key in LEGACY_PLUGIN_KEYS:
+        if legacy_key in enabled:
+            enabled[legacy_key] = False
     enabled[PLUGIN_KEY] = True
     write_json(settings_path, settings, stamp)
 
+    archived = archive_legacy_skills(workbuddy_home, stamp)
     print("申论复盘一体版 WorkBuddy 完整插件安装成功。")
     print(f"插件目录：{destination}")
-    print("请重启 WorkBuddy 或新建任务，以加载 Skill、MCP 和 Hook。")
+    for path in archived:
+        print(f"已归档重复 Skill：{path}")
+    print("请完全退出并重启 WorkBuddy，再新建任务加载 Skill、MCP 和 Hook。")
     return 0
 
 

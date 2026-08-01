@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 SERVER_NAME = "shenlun_review_mcp"
-SERVER_VERSION = "1.2.0"
+SERVER_VERSION = "1.3.0"
 PROTOCOL_VERSION = "2024-11-05"
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 TIMEOUT_SECONDS = 70

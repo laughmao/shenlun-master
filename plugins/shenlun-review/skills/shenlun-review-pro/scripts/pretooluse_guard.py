@@ -13,10 +13,10 @@ from pathlib import Path
 
 
 BLOCK_MESSAGE = (
-    "申论普通批改必须使用结构化工具 shenlun_grade_once；成稿必须使用 "
-    "shenlun_validate_user_output。不要用 Bash、heredoc、临时 Python 或临时 "
-    "JSON 调用评分引擎。若工具尚未出现，请重新加载当前客户端的申论插件 "
-    "或 MCP Server 后新建任务。"
+    "申论普通批改优先使用结构化工具 shenlun_grade_once；成稿优先使用 "
+    "shenlun_validate_user_output。MCP 不可用时，只能通过 safe_review_runner.py "
+    "的结构化标准输入入口降级。不要用 heredoc、python -c、临时 Python 或临时 "
+    "JSON 调用评分引擎。"
 )
 
 TEMPORARY_GRADING_NAMES = {
@@ -28,9 +28,7 @@ TEMPORARY_GRADING_NAMES = {
 }
 
 GRADE_COMMAND = re.compile(r"\b(?:grade-once|validate-user-output)\b", re.I)
-DIRECT_RUNNER = re.compile(
-    r"(?:review_engine|safe_review_runner)\.py", re.I
-)
+DIRECT_RUNNER = re.compile(r"review_engine\.py", re.I)
 PYTHON_HEREDOC = re.compile(
     r"\bpython(?:3(?:\.\d+)?)?\b[^\n]*(?:<<[-~]?\s*['\"]?[A-Za-z_][A-Za-z0-9_]*|-[cC]\b)",
     re.I,
