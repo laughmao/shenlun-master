@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,68 @@ class WorkBuddyInstallerTests(unittest.TestCase):
                     / "shenlun_mcp_server.py"
                 ).is_file()
             )
+            mcp_config = json.loads(
+                (plugin / ".mcp.json").read_text(encoding="utf-8")
+            )
+            server = mcp_config["mcpServers"]["shenlun-review"]
+            self.assertEqual(server["command"], "python3")
+            self.assertTrue(Path(server["args"][0]).is_absolute())
+            self.assertTrue(Path(server["args"][0]).is_file())
+            self.assertTrue(Path(server["env"]["SHENLUN_SKILL_DIR"]).is_dir())
+            self.assertNotIn("CODEBUDDY_PLUGIN_ROOT", server["args"][0])
+            self.assertNotIn(
+                "CODEBUDDY_PLUGIN_ROOT", server["env"]["SHENLUN_SKILL_DIR"]
+            )
+
+            env = os.environ.copy()
+            env.update(server["env"])
+            process = subprocess.Popen(
+                [server["command"], *server["args"]],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            try:
+                process.stdin.write(
+                    json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {"protocolVersion": "2024-11-05"},
+                    }) + "\n"
+                )
+                process.stdin.flush()
+                initialized = json.loads(process.stdout.readline())
+                self.assertEqual(
+                    initialized["result"]["serverInfo"]["name"], "shenlun_review_mcp"
+                )
+                process.stdin.write(
+                    json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/list",
+                        "params": {},
+                    }) + "\n"
+                )
+                process.stdin.flush()
+                listed = json.loads(process.stdout.readline())
+                tool_names = {
+                    item["name"] for item in listed["result"]["tools"]
+                }
+                self.assertEqual(
+                    tool_names,
+                    {"shenlun_grade_once", "shenlun_validate_user_output"},
+                )
+            finally:
+                if process.stdin:
+                    process.stdin.close()
+                process.wait(timeout=5)
+                if process.stdout:
+                    process.stdout.close()
+                if process.stderr:
+                    process.stderr.close()
             self.assertFalse(legacy_skill.exists())
             archived = (
                 workbuddy_home

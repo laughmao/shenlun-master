@@ -54,7 +54,7 @@ CONFIG_DIR = Path(__file__).resolve().parent.parent / "references" / "config"
 SQL_SCHEMA = Path(__file__).resolve().parent / "state-schema.sql"
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 SKILL_FILE = Path(__file__).resolve().parent.parent / "SKILL.md"
-ENGINE_VERSION = "1.3.0"
+ENGINE_VERSION = "1.3.1"
 
 EXIT_SUCCESS = 0
 EXIT_INPUT_ERROR = 2
@@ -7472,8 +7472,8 @@ def _basic_user_output_issues(text, allow_table=False, allow_internal_ids=False,
             issues.append({"type": "internal_ids", "values": ids})
         patterns = {
             "internal_command": r"\b(?:analyze-once|grade-once|compare-drafts|calculate-score|validate-user-output)\b",
-            "internal_field": r"\b(?:reference_fast_path|material_full_path|write_back|single_compile|formal_score|point_pool_fingerprint|validation_receipt)\b",
-            "implementation_receipt": r"工程回执|引擎回执|执行说明|内部实现|正式技能目录|技能版本|RC\s*=?\s*0|CLI|JSON校验|查看所有产物|查看所有变更|本次技能实际走了什么|门禁(?:通过|失败)|校验(?:通过|失败)|运行状态|写回\s*SQLite|核心要点速记|(?:今日)?(?:工作)?日志|按技能(?:铁律|契约)|回执已自动删除|解析已通过引擎校验",
+            "internal_field": r"\b(?:reference_fast_path|material_full_path|write_back|single_compile|formal_score|point_pool_fingerprint|validation_receipt|included|merged|excluded)\b",
+            "implementation_receipt": r"工程回执|引擎回执|执行说明|内部实现|正式技能目录|技能版本|RC\s*=?\s*0|CLI|JSON校验|查看所有产物|查看所有变更|本次技能实际走了什么|门禁(?:通过|失败)|校验(?:通过|失败)|运行状态|写回\s*SQLite|核心要点速记|(?:今日)?(?:工作)?日志|按技能(?:铁律|契约)|回执已自动删除|解析已通过引擎校验|引擎方法选择|由引擎[^。；\n]{0,24}(?:命中|选择)",
             "internal_route": r"原型\s*(?:ID|命中|=|：)|方法卡\s*(?:ID|编号|=|：)",
             "method_card_receipt": r"(?:\d+|[一二三四五六七八九十]+)\s*张(?:方法卡|卡片)|方法卡选择回执",
             "internal_point_label": r"(?<![A-Za-z])(?:P|p)\d+(?![A-Za-z])",
@@ -7485,6 +7485,7 @@ def _basic_user_output_issues(text, allow_table=False, allow_internal_ids=False,
 
         pseudo_point_score_patterns = [
             r"(?:这一点|该点|本点|逐点|(?:P|p)\d+)[^。；\n]{0,24}(?:得|拿到|获得|约)\s*\d+(?:\.\d+)?\s*分",
+            r"(?:这一点|该点|本点)[^。；\n]{0,12}(?:满分|全分)",
             r"每点\s*\d+(?:\.\d+)?\s*分",
             r"\d+(?:\.\d+)?\s*分[^。；\n]{0,12}(?:几乎)?(?:全失|全拿|拿满)",
         ]

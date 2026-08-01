@@ -12,9 +12,9 @@
 
 ### 传输与止损
 
-工具不可见时先搜索；仍未加载或宿主不支持 MCP，就走安全入口。禁止 `python3 - <<'PY'`、`python -c`、临时代码/JSON或 shell 拼输入；插件守卫会拒绝旧路径。
+工具不可见时先搜索；仍未加载或宿主不支持 MCP，停止正式评分并提示用户启用/重启申论插件。禁止 `python3 - <<'PY'`、`python -c`、临时代码/JSON、重定向、shell 拼输入或直接调用评分 Runner；插件守卫会拒绝旧路径。
 
-未加载 MCP 时，用 `python3 <skill_dir>/scripts/safe_review_runner.py grade-once` 与 `validate-user-output`，只传结构化标准输入；它与 MCP 共用同一引擎和口径。
+`safe_review_runner.py` 仅由 MCP Server 内部调用，普通智能体不得把它当作终端降级入口。
 
 首次失败只改错误列表所指路径，统一修正后重试一次；不得改其他已通过字段。第二次失败或同错再现即停止。脚本启动、JSON 解析失败和 60 秒超时都计入次数；不得查源码、Schema、`--help`、方法卡或旧命令链。
 

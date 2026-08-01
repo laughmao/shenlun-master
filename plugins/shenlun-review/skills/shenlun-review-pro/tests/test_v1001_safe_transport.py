@@ -3,7 +3,6 @@
 
 import json
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,11 +17,8 @@ RUNTIME_CONTRACT = (
 )
 
 
-def run_safe(command, payload_text, input_path=None):
+def run_safe(command, payload_text):
     args = ["python3", str(RUNNER), command]
-    if input_path is not None:
-        args.extend(["--input", str(input_path)])
-        payload_text = None
     return subprocess.run(
         args,
         input=payload_text,
@@ -50,16 +46,6 @@ class V1001SafeTransportTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout or proc.stderr)
         result = json.loads(proc.stdout)
         self.assertTrue(result["formal_score"])
-        self.assertTrue(result["grade_once_receipt"]["single_compile"])
-
-    def test_utf8_json_file_transport_uses_same_fixed_entry(self):
-        payload_text = json.dumps(self.special_payload(), ensure_ascii=False)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            input_path = Path(temp_dir) / "grade-input.json"
-            input_path.write_text(payload_text, encoding="utf-8")
-            proc = run_safe("grade-once", None, input_path)
-        self.assertEqual(proc.returncode, 0, proc.stdout or proc.stderr)
-        result = json.loads(proc.stdout)
         self.assertTrue(result["grade_once_receipt"]["single_compile"])
 
     def test_invalid_json_returns_transport_error_without_traceback(self):
@@ -97,12 +83,13 @@ class V1001SafeTransportTests(unittest.TestCase):
         for text in (skill_text, runtime_text):
             self.assertIn("shenlun_grade_once", text)
             self.assertIn("shenlun_validate_user_output", text)
-            self.assertIn("safe_review_runner.py grade-once", text)
             self.assertIn("python3 - <<'PY'", text)
-            self.assertIn("未加载 MCP 时", text)
+            self.assertIn("仍未加载或宿主不支持 MCP", text)
             self.assertIn("第二次失败", text)
-            self.assertIn("JSON 解析失败", text)
             self.assertIn("不得改其他已通过字段", text)
+            self.assertIn("safe_review_runner.py", text)
+        self.assertIn("只供 MCP Server 内部调用", skill_text)
+        self.assertIn("普通智能体不得把它当作终端降级入口", runtime_text)
 
 
 if __name__ == "__main__":

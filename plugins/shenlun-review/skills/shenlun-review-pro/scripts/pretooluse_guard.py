@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Cross-client guard against unsafe terminal construction for grading.
+"""Cross-client guard against terminal bypasses in ordinary grading.
 
-The hook is deliberately narrow: it blocks direct grading/final-validation
-entrypoints and the temporary helper names that previously caused repeated
-JSON quoting failures. Other Bash and file operations remain available.
+The deterministic runner is private to the MCP server. In a normal user
+conversation, grading must use the two MCP tools; terminal-built input files
+and direct engine invocations are rejected.
 """
 
 import json
@@ -14,9 +14,9 @@ from pathlib import Path
 
 BLOCK_MESSAGE = (
     "申论普通批改优先使用结构化工具 shenlun_grade_once；成稿优先使用 "
-    "shenlun_validate_user_output。MCP 不可用时，只能通过 safe_review_runner.py "
-    "的结构化标准输入入口降级。不要用 heredoc、python -c、临时 Python 或临时 "
-    "JSON 调用评分引擎。"
+    "shenlun_validate_user_output。MCP 不可用时，停止正式评分并提示用户启用 "
+    "申论插件；不要用终端、heredoc、python -c、临时 Python 或临时 JSON 调用 "
+    "评分引擎。"
 )
 
 TEMPORARY_GRADING_NAMES = {
@@ -25,10 +25,25 @@ TEMPORARY_GRADING_NAMES = {
     "grade-once-input.json",
     "shenlun_grade_input.json",
     "shenlun-grade-input.json",
+    "grade_input.json",
+    "grade-input.json",
+    "validate_input.json",
+    "validate-input.json",
+    "grade_receipt.json",
+    "grade-receipt.json",
+    "validate_receipt.json",
+    "validate-receipt.json",
 }
 
 GRADE_COMMAND = re.compile(r"\b(?:grade-once|validate-user-output)\b", re.I)
-DIRECT_RUNNER = re.compile(r"review_engine\.py", re.I)
+TERMINAL_GRADING_RUNNER = re.compile(
+    r"\b(?:safe_review_runner|review_engine|shenlun_mcp_server)\.py\b", re.I
+)
+GRADING_ARTIFACT_NAME = re.compile(
+    r"^(?:shenlun[-_]?)?(?:grade|grading|score|scoring|validate|validation|"
+    r"receipt|review)(?:[-_][a-z0-9]+)*\.(?:json|py)$",
+    re.I,
+)
 PYTHON_HEREDOC = re.compile(
     r"\bpython(?:3(?:\.\d+)?)?\b[^\n]*(?:<<[-~]?\s*['\"]?[A-Za-z_][A-Za-z0-9_]*|-[cC]\b)",
     re.I,
@@ -53,7 +68,10 @@ def deny(reason):
 def filename_is_blocked(value):
     if not isinstance(value, str) or not value:
         return False
-    return Path(value).name.lower() in TEMPORARY_GRADING_NAMES
+    name = Path(value).name.lower()
+    return name in TEMPORARY_GRADING_NAMES or bool(
+        GRADING_ARTIFACT_NAME.fullmatch(name)
+    )
 
 
 def inspect_bash(tool_input):
@@ -65,8 +83,11 @@ def inspect_bash(tool_input):
     if any(name in lowered for name in TEMPORARY_GRADING_NAMES):
         return deny("检测到旧的申论批改临时输入或临时脚本名")
 
-    if DIRECT_RUNNER.search(command) and GRADE_COMMAND.search(command):
-        return deny("检测到直接调用申论评分/成稿校验脚本")
+    if TERMINAL_GRADING_RUNNER.search(command):
+        return deny("检测到从终端直接调用申论评分、校验或 MCP 脚本")
+
+    if GRADE_COMMAND.search(command) and SHENLUN_MARKER.search(command):
+        return deny("检测到从终端绕过申论 MCP 工具调用评分或成稿校验")
 
     if PYTHON_HEREDOC.search(command) and SHENLUN_MARKER.search(command):
         return deny("检测到为申论批改拼装输入的 Python heredoc 或 python -c")

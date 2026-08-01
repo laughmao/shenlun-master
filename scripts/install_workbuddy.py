@@ -86,6 +86,46 @@ def replace_marketplace(
         raise
 
 
+def configure_workbuddy_mcp(marketplace_root: Path, destination: Path) -> None:
+    """Bind the WorkBuddy MCP command to this exact installed plugin copy.
+
+    WorkBuddy may load a marketplace MCP configuration outside the plugin
+    runtime, where CODEBUDDY_PLUGIN_ROOT is not injected. Resolve the two
+    paths while the installer still knows the final destination so the host
+    can always start the server.
+    """
+    packaged_plugin_root = marketplace_root / "plugins" / "shenlun-review"
+    installed_plugin_root = destination / "plugins" / "shenlun-review"
+    installed_skill_root = installed_plugin_root / "skills" / "shenlun-review-pro"
+    server_path = installed_skill_root / "scripts" / "shenlun_mcp_server.py"
+    packaged_server_path = (
+        packaged_plugin_root
+        / "skills"
+        / "shenlun-review-pro"
+        / "scripts"
+        / "shenlun_mcp_server.py"
+    )
+    config_path = packaged_plugin_root / ".mcp.json"
+    payload = load_object(config_path, {})
+    servers = payload.get("mcpServers")
+    if not isinstance(servers, dict):
+        raise ValueError(f"{config_path} 的 mcpServers 必须是对象")
+    server = servers.get("shenlun-review")
+    if not isinstance(server, dict):
+        raise ValueError(f"{config_path} 缺少 shenlun-review MCP 配置")
+    if not packaged_server_path.is_file():
+        raise FileNotFoundError(f"安装包缺少 MCP Server：{packaged_server_path}")
+    server["command"] = "python3"
+    server["args"] = [str(server_path)]
+    env = server.setdefault("env", {})
+    if not isinstance(env, dict):
+        raise ValueError(f"{config_path} 的 shenlun-review.env 必须是对象")
+    env["SHENLUN_SKILL_DIR"] = str(installed_skill_root)
+    config_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def archive_legacy_skills(workbuddy_home: Path, stamp: str) -> list[Path]:
     archived = []
     backup_root = workbuddy_home / "backups" / "shenlun-review" / "legacy-skills"
@@ -109,6 +149,7 @@ def main() -> int:
     destination = workbuddy_home / "plugins" / "marketplaces" / MARKETPLACE_NAME
     with tempfile.TemporaryDirectory(prefix="shenlun-workbuddy-") as temp_dir:
         source_marketplace = build_workbuddy(Path(temp_dir) / "marketplace")
+        configure_workbuddy_mcp(source_marketplace, destination)
         replace_marketplace(
             source_marketplace,
             destination,

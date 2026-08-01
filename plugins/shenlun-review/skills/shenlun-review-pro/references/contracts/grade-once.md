@@ -7,16 +7,9 @@ MCP 可用时固定调用如下；不得把自然语言嵌入 Python 字符串�
 - 评分：结构化工具 `shenlun_grade_once`，完整评分对象直接作为工具参数。
 - 成稿：结构化工具 `shenlun_validate_user_output`，正文和 `output_validation_context` 直接作为工具参数。
 
-若工具未直接显示，先用工具搜索查找 `shenlun_grade_once`。仍未加载或宿主不支持 MCP 时，使用下方安全入口；安装完整版插件后，PreToolUse 守卫会拒绝直接调用评分脚本、Python heredoc 和旧临时文件。
+若工具未直接显示，先用工具搜索查找 `shenlun_grade_once`。仍未加载或宿主不支持 MCP 时，停止正式评分并提示用户启用或重启申论插件；不得尝试终端兼容入口、手工评分或临时文件。安装完整版插件后，PreToolUse 守卫会拒绝直接调用评分脚本、Python heredoc 和临时评分文件。
 
-RedSkill 独立版或其他未加载 MCP 的宿主使用兼容入口：
-
-```bash
-python3 <skill_dir>/scripts/safe_review_runner.py grade-once
-python3 <skill_dir>/scripts/safe_review_runner.py validate-user-output
-```
-
-兼容入口和 MCP 共用同一引擎、契约与评分口径。它只接受结构化标准输入；不得用 heredoc Python、`python -c`、`eval/exec`、临时文件、shell 重定向、`echo` 或 `printf` 拼装输入。中文/英文引号、换行、反斜杠、`$()` 和反引号必须保持为 JSON 数据。脚本启动失败、JSON 解析失败和 60 秒超时均算一次失败；第二次失败或同错再现立即停止。
+`safe_review_runner.py` 是 MCP Server 的内部实现。普通智能体不得通过 heredoc、`python -c`、`eval/exec`、临时文件、shell 重定向、`echo` 或 `printf` 拼装输入并调用它。脚本启动失败、JSON 解析失败和 60 秒超时均由 MCP Server 内部处理；普通对话中一旦 MCP 不可用或重试失败，就停止并提示用户处理插件状态。
 
 ## 通用输入
 

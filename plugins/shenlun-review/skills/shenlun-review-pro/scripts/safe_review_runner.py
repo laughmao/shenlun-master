@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Safe JSON transport for the normal Shenlun grading workflow.
+"""Private JSON transport used by the Shenlun MCP bridge.
 
-This runner deliberately accepts only the two commands used by ordinary
-grading. It parses input as data, serializes it canonically, and invokes the
-deterministic engine without generating or evaluating Python source code.
+The MCP bridge supplies one JSON object through stdin. This runner parses it
+as data, serializes it canonically, and invokes the deterministic engine
+without generating or evaluating Python source code. It is not a user-facing
+terminal fallback.
 """
 
 import argparse
@@ -37,20 +38,8 @@ def emit_transport_error(message, detail=None):
     return EXIT_INPUT_ERROR
 
 
-def read_payload(input_path):
-    if input_path == "-":
-        raw = sys.stdin.read()
-    else:
-        path = Path(input_path)
-        if not path.is_file():
-            return None, emit_transport_error("Input JSON file not found")
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            return None, emit_transport_error(
-                "Could not read UTF-8 input JSON", type(exc).__name__
-            )
-
+def read_payload():
+    raw = sys.stdin.read()
     if not raw.strip():
         return None, emit_transport_error("Input JSON is empty")
 
@@ -70,14 +59,9 @@ def read_payload(input_path):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="safe_review_runner.py",
-        description="Run ordinary Shenlun grading through a fixed JSON-only transport",
+        description="Internal fixed JSON transport for the Shenlun MCP bridge",
     )
     parser.add_argument("command", choices=ALLOWED_COMMANDS)
-    parser.add_argument(
-        "--input",
-        default="-",
-        help="UTF-8 JSON file path or - for stdin",
-    )
     parser.add_argument(
         "--timeout",
         type=int,
@@ -92,7 +76,7 @@ def main():
     if not 1 <= args.timeout <= DEFAULT_TIMEOUT_SECONDS:
         return emit_transport_error("Timeout must be between 1 and 60 seconds")
 
-    payload, error_code = read_payload(args.input)
+    payload, error_code = read_payload()
     if error_code is not None:
         return error_code
 

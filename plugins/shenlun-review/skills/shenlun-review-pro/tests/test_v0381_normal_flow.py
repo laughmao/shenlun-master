@@ -87,14 +87,15 @@ class V0381NormalFlowTests(unittest.TestCase):
         self.assertIn("普通批改执行锁", skill_text)
         self.assertIn("shenlun_grade_once", skill_text)
         self.assertIn("shenlun_validate_user_output", skill_text)
-        self.assertIn("safe_review_runner.py grade-once", skill_text)
+        self.assertIn("停止正式评分并提示用户启用/重启申论插件", skill_text)
+        self.assertIn("只供 MCP Server 内部调用", skill_text)
         self.assertIn("禁止用 `python3 - <<'PY'`", skill_text)
-        self.assertIn("未加载 MCP 时", skill_text)
-        self.assertIn("共用同一引擎和评分口径", skill_text)
+        self.assertIn("仍未加载或宿主不支持 MCP", skill_text)
         self.assertIn("第二次失败或同错再现立即停止", skill_text)
         self.assertIn("普通批改的首选契约", contract_text)
         self.assertIn("受控读取完整契约", contract_text)
         self.assertIn("不得查源码、Schema、`--help`", contract_text)
+        self.assertIn("普通智能体不得把它当作终端降级入口", contract_text)
 
     def test_compact_aliases_and_fragmented_evidence_succeed_once(self):
         code, result = run_engine("grade-once", compact_payload())
@@ -231,6 +232,25 @@ class V0381NormalFlowTests(unittest.TestCase):
         issue_types = {item["type"] for item in result["detail"]["issues"]}
         self.assertIn("internal_point_label", issue_types)
         self.assertIn("pseudo_point_score", issue_types)
+
+    def test_output_gate_hides_internal_reference_and_method_receipts(self):
+        code, result = run_engine("validate-user-output", {
+            "text": (
+                "方法讲解：先回到题干，再逐条核对材料。"
+                "该点满分；参考答案候选已 included，由引擎方法选择命中。"
+            ),
+            "validation_context": {
+                "output_mode": "批改",
+                "reference_available": False,
+                "final_response": True,
+                "required_method_names": [],
+            },
+        })
+        self.assertNotEqual(code, 0)
+        issue_types = {item["type"] for item in result["detail"]["issues"]}
+        self.assertIn("pseudo_point_score", issue_types)
+        self.assertIn("internal_field", issue_types)
+        self.assertIn("implementation_receipt", issue_types)
 
     def test_final_gate_checks_generated_reference_answer_without_separate_command(self):
         code, graded = run_engine("grade-once", compact_payload())

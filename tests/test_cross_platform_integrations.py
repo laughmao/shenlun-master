@@ -137,11 +137,6 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
         cases = (
             (PLUGIN / ".mcp.json", "CODEX_PLUGIN_ROOT", True),
             (PLUGIN / "config" / "claude" / ".mcp.json", "CLAUDE_PLUGIN_ROOT", False),
-            (
-                PLUGIN / "config" / "workbuddy" / ".mcp.json",
-                "CODEBUDDY_PLUGIN_ROOT",
-                True,
-            ),
         )
         for config, root_variable, wrapped in cases:
             payload = load_json(config)
@@ -154,6 +149,11 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
             self.assertIn(root_variable, server["args"][0])
             self.assertTrue(server["args"][0].endswith("scripts/shenlun_mcp_server.py"))
             self.assertIn(root_variable, server["env"]["SHENLUN_SKILL_DIR"])
+
+        workbuddy_manifest = load_json(
+            PLUGIN / ".codebuddy-plugin" / "plugin.json"
+        )
+        self.assertEqual(workbuddy_manifest["mcpServers"], "./.mcp.json")
 
     def test_mcp_preserves_quote_rich_chinese_and_calls_fixed_runner(self):
         env = os.environ.copy()
@@ -208,7 +208,7 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
             if process.stderr:
                 process.stderr.close()
 
-    def test_guard_blocks_raw_engine_but_allows_safe_runner_fallback(self):
+    def test_guard_blocks_all_terminal_grading_paths_and_artifacts(self):
         request = {
             "hook_event_name": "PreToolUse",
             "tool_name": "Bash",
@@ -230,14 +230,34 @@ class CrossPlatformIntegrationTests(unittest.TestCase):
         request["tool_input"] = {
             "command": "python3 safe_review_runner.py grade-once"
         }
-        allowed = subprocess.run(
+        runner_blocked = subprocess.run(
             [sys.executable, str(GUARD)],
             input=json.dumps(request, ensure_ascii=False),
             text=True,
             capture_output=True,
             check=False,
         )
-        self.assertEqual(json.loads(allowed.stdout), {})
+        self.assertEqual(
+            json.loads(runner_blocked.stdout)["hookSpecificOutput"]["permissionDecision"],
+            "deny",
+        )
+
+        request["tool_name"] = "Write"
+        request["tool_input"] = {
+            "file_path": "/tmp/validate_input.json",
+            "content": "{}",
+        }
+        artifact_blocked = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=json.dumps(request, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(
+            json.loads(artifact_blocked.stdout)["hookSpecificOutput"]["permissionDecision"],
+            "deny",
+        )
 
     def test_trae_installer_is_repeatable_and_preserves_other_servers(self):
         installer = ROOT / "integrations" / "trae" / "install.py"
