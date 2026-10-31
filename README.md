@@ -8,6 +8,18 @@
 
 许可证：[GNU GPL v3.0（仅限 v3.0）](LICENSE.txt)。再分发或修改本项目时，请保留许可证文本、版权声明和对应源码。
 
+## Web 版（独立网页应用，推荐新手）
+
+不装任何 AI 宿主，浏览器打开即用，手机可用。三种模式：
+
+- **解析模式**：拆题、找点、示范答案；另有**学习模式**——苏格拉底式私教提问引导，
+  搞懂了才出示标准答案
+- **批改模式**：逐条评点你的作答，给档位与建议分
+- **抓题模式**：内置 gkzhenti 公开真题库（77 套申论整卷，可搜索），点一下秒出全部题目
+
+本地运行与 Docker 云部署见 **[webapp/README.md](webapp/README.md)** 和
+**[webapp/DEPLOY.md](webapp/DEPLOY.md)**；AI 助手请先读 **[AGENTS.md](AGENTS.md)**。
+
 ## 安装
 
 这是 GitHub 多智能体版本，包含完整 Skill、固定 MCP Server 和安全执行 Hook。RedSkill 商店版位于独立项目 `shenlun-review-skill`，不会被本仓库覆盖或更新。
