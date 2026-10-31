@@ -1,0 +1,27 @@
+# 敏感与本地文件：绝不进入镜像（Key 的唯一合法位置是服务器上的 webapp/.env 挂载）
+.env
+webapp/.env
+webapp/.env.*
+!webapp/.env.example
+*.pem
+*.key
+
+# 版本控制与本地环境
+.git
+.gitignore
+.claude
+.github
+.claude-plugin
+.agents
+
+# 本地 Python / Node 产物
+webapp/.venv
+**/__pycache__
+*.pyc
+
+# 运行 Web 版用不到的内容（缩小镜像体积）
+docs
+tests
+integrations
+scripts
+plugins/shenlun-review/skills/shenlun-review-pro/tests

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#2f6f4f" />
+  <title>申论复盘 · Web 版</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>申论复盘</h1>
+    <span class="subtitle">解析 · 批改 · 评分</span>
+    <button id="btn-settings" class="icon-btn" aria-label="设置">⚙︎</button>
+  </header>
+
+  <main>
+    <!-- 模式选择：三个大入口 -->
+    <div class="mode-cards three" id="mode-cards">
+      <button type="button" class="mode-card active" data-panel="analyze">
+        <span class="mode-icon">📖</span>
+        <span class="mode-name">解析模式</span>
+        <span class="mode-desc">还没作答，想学会这道题<br>拆题 · 找点 · 示范答案</span>
+      </button>
+      <button type="button" class="mode-card" data-panel="grade">
+        <span class="mode-icon">✅</span>
+        <span class="mode-name">批改模式</span>
+        <span class="mode-desc">已写好作答，要评分修改<br>逐条评点 · 档位建议分</span>
+      </button>
+      <button type="button" class="mode-card" data-panel="grab">
+        <span class="mode-icon">🌐</span>
+        <span class="mode-name">抓题模式</span>
+        <span class="mode-desc">从网页链接抓题<br>或从内置真题挑一道</span>
+      </button>
+    </div>
+
+    <!-- 解析面板 -->
+    <form id="panel-analyze" class="panel" data-mode="analyze">
+      <div class="field">
+        <label for="q-analyze">题干 <span class="req">*</span></label>
+        <textarea id="q-analyze" data-field="question" rows="3" placeholder="例：根据给定资料1，概括S市推进垃圾分类的主要做法。（15分）"></textarea>
+      </div>
+      <div class="field">
+        <div class="label-row"><label for="m-analyze">给定资料 <span class="req">*</span></label><button type="button" class="expand-btn" data-target="m-analyze">⤢ 全屏</button></div>
+        <textarea id="m-analyze" data-field="material" rows="8" placeholder="粘贴本题对应的完整材料……"></textarea>
+      </div>
+      <details class="optional">
+        <summary>参考答案（选填，有则对照讲解）</summary>
+        <textarea data-field="reference" rows="5" placeholder="如有官方/机构参考答案，粘贴到这里"></textarea>
+      </details>
+      <button type="submit" class="primary">开始解析</button>
+      <button type="button" id="btn-analyze-learn" class="secondary">🎓 学不会？让私教带我一步一步练（学习模式）</button>
+    </form>
+
+    <!-- 批改面板 -->
+    <form id="panel-grade" class="panel hidden" data-mode="grade">
+      <div class="field">
+        <label for="q-grade">题干 <span class="req">*</span></label>
+        <textarea id="q-grade" data-field="question" rows="3" placeholder="例：根据给定资料1，概括S市推进垃圾分类的主要做法。（15分）"></textarea>
+      </div>
+      <div class="field">
+        <div class="label-row"><label for="m-grade">给定资料 <span class="req">*</span></label><button type="button" class="expand-btn" data-target="m-grade">⤢ 全屏</button></div>
+        <textarea id="m-grade" data-field="material" rows="8" placeholder="粘贴本题对应的完整材料……"></textarea>
+      </div>
+      <div class="field">
+        <label for="a-grade">我的作答 <span class="req">*</span></label>
+        <textarea id="a-grade" data-field="answer" rows="6" placeholder="粘贴你自己写的答案……"></textarea>
+      </div>
+      <details class="optional">
+        <summary>参考答案（选填，有则对照批改更准）</summary>
+        <textarea data-field="reference" rows="5" placeholder="如有官方/机构参考答案，粘贴到这里"></textarea>
+      </details>
+      <button type="submit" class="primary">开始批改</button>
+    </form>
+
+    <!-- 抓题面板 -->
+    <form id="panel-grab" class="panel hidden" data-mode="grab">
+      <div class="field">
+        <label for="paper-filter">内置真题库（gkzhenti 公开真题 · 申论整卷）</label>
+        <input id="paper-filter" type="text" placeholder="筛选：如「2024」「国考」「浙江」…" />
+        <p id="grab-status" class="hint">点击任意一份试卷 → 自动抓取并提取全部题目</p>
+      </div>
+
+      <div id="papers-list" class="papers-list"></div>
+
+      <!-- 抓取/选题后的预览确认 -->
+      <div id="grab-preview" class="grab-preview hidden">
+        <p class="samples-title">题目预览（可直接修改）</p>
+        <div id="pv-question-list" class="samples-list hidden"></div>
+        <div class="field">
+          <div class="label-row"><label>题干</label></div>
+          <textarea id="pv-question" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <div class="label-row"><label>给定资料</label>
+          <button type="button" class="expand-btn" data-target="pv-material">⤢ 全屏</button></div>
+          <textarea id="pv-material" rows="8"></textarea>
+        </div>
+        <div class="field">
+          <label>参考答案（如有）</label>
+          <textarea id="pv-reference" rows="4"></textarea>
+        </div>
+        <button type="button" id="btn-grab-analyze" class="primary">用这道题开始解析</button>
+        <button type="button" id="btn-grab-learn" class="secondary">🎓 或进入学习模式，让私教带我练</button>
+      </div>
+    </form>
+
+    <section id="result-card" class="result-card hidden">
+      <div class="result-head">
+        <span id="result-status">正在思考…</span>
+        <div>
+          <button id="btn-copy" class="ghost hidden" type="button">复制</button>
+          <button id="btn-new" class="ghost" type="button">新建</button>
+        </div>
+      </div>
+      <div id="loading-bar" class="loading-bar hidden"></div>
+      <article id="result" class="result-body"></article>
+    </section>
+
+    <!-- 学习模式：对话区 -->
+    <section id="learn-section" class="learn-section hidden">
+      <div class="learn-head">
+        <span>🎓 学习模式 · 私教带练</span>
+        <button id="btn-learn-exit" class="ghost" type="button">退出学习</button>
+      </div>
+      <div id="chat-log" class="chat-log"></div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" rows="2" placeholder="回答老师的问题，或说出你的想法…"></textarea>
+        <button id="btn-chat-send" class="primary chat-send" type="button">发送</button>
+      </div>
+      <div class="chat-quick">
+        <button type="button" id="btn-chat-answer" class="ghost">让老师直接给标准答案</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 材料全屏查看 -->
+  <div id="fs-mask" class="mask hidden">
+    <div class="fs-dialog">
+      <div class="fs-head">
+        <span>给定资料 · 全屏</span>
+        <button id="fs-close" class="primary fs-close" type="button">完成</button>
+      </div>
+      <textarea id="fs-textarea" rows="14"></textarea>
+    </div>
+  </div>
+
+  <!-- 设置弹层 -->
+  <div id="settings-mask" class="mask hidden">
+    <div class="dialog">
+      <h2>API 设置（可选）</h2>
+      <p class="hint">服务器已内置默认模型时无需任何配置即可使用。如想用自己的接口（GLM / DeepSeek / Kimi 等任意 OpenAI 兼容格式），在下方填写；Key 只保存在本机浏览器，不经过本页以外的任何服务器。</p>
+      <label>API 地址（不含 /chat/completions）</label>
+      <input id="cfg-base" type="url" placeholder="https://open.bigmodel.cn/api/paas/v4" />
+      <label>API Key</label>
+      <input id="cfg-key" type="password" placeholder="sk-…" />
+      <label>模型名</label>
+      <input id="cfg-model" type="text" placeholder="glm-4.6" />
+      <div class="dialog-actions">
+        <button id="cfg-cancel" class="ghost" type="button">取消</button>
+        <button id="cfg-save" class="primary" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

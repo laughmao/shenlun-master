@@ -1,0 +1,2 @@
+# 申论复盘 Web 版运行时依赖（与 webapp/.venv 中验证过的版本一致）
+claude-agent-sdk==0.2.176

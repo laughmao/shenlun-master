@@ -1,0 +1,13 @@
+services:
+  shenlun-web:
+    build:
+      context: .
+      dockerfile: webapp/Dockerfile
+    image: shenlun-web:latest
+    container_name: shenlun-web
+    ports:
+      - "8787:8787"            # 宿主端口:容器端口，改宿主端口只动左边
+    volumes:
+      # Key 的唯一合法位置：服务器上的 webapp/.env，只读挂载，不进镜像
+      - ./webapp/.env:/app/webapp/.env:ro
+    restart: unless-stopped
