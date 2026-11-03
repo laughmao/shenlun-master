@@ -7,6 +7,7 @@
   --muted: #6b7a72;
   --line: #dde5df;
   --brand: #2f6f4f;
+  --brand-rgb: 47, 111, 79;
   --brand-ink: #ffffff;
   --brand-soft: #e7f1ec;
   --danger: #b3403a;
@@ -21,6 +22,7 @@
     --muted: #8fa298;
     --line: #2a3630;
     --brand: #4f9c76;
+    --brand-rgb: 79, 156, 118;
     --brand-ink: #0d1411;
     --brand-soft: #1f2c26;
     --danger: #e07b74;
@@ -550,4 +552,207 @@ textarea:focus, input:focus {
   resize: none;
   font-size: 17px;
   line-height: 1.9;
+}
+
+/* ---- 顶栏加油文案 ---- */
+.user-greeting {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 历史入口：品牌色药丸按钮，登录后短暂脉冲引导点击 ---- */
+.history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.history-btn:active { box-shadow: 0 0 0 3px var(--brand-soft); }
+
+.history-btn.attention {
+  animation: hist-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes hist-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--brand-rgb), .40); }
+  60%      { box-shadow: 0 0 0 9px rgba(var(--brand-rgb), 0); }
+}
+
+/* 窄屏下顶栏放不下副标题，让位给用户徽章和历史按钮 */
+@media (max-width: 479px) {
+  .subtitle { display: none; }
+}
+
+/* ---- 登录 / 注册 ---- */
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.auth-tab.active {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.auth-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 12px 2px 0;
+}
+
+/* ---- 历史会话 ---- */
+.dialog-history {
+  width: min(560px, 100%);
+  height: min(86vh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+
+.history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.history-head h2 { margin: 0; font-size: 17px; }
+
+.history-list {
+  flex: 1;
+  margin-top: 12px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  -webkit-overflow-scrolling: touch;
+}
+
+.conv-item {
+  position: relative;
+  padding: 12px 44px 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color .15s;
+}
+
+.conv-item:active { border-color: var(--brand); }
+
+.conv-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.conv-meta {
+  margin-top: 5px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.conv-badge {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  white-space: nowrap;
+}
+
+.conv-time { white-space: nowrap; }
+
+.conv-del {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  font-size: 15px;
+  opacity: .5;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.conv-del:active { opacity: 1; }
+
+/* 学习模式头部按钮组（画像 / 退出） */
+.learn-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.memory-item {
+  position: relative;
+  padding: 12px 44px 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+/* 设置弹层：账号分区 */
+.settings-divider {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.danger {
+  border: 1px solid var(--danger);
+  background: none;
+  color: var(--danger);
+  padding: 7px 14px;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.danger:active {
+  background: var(--danger);
+  color: #fff;
+}
+
+.history-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 40px 0;
+  line-height: 1.8;
 }

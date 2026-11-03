@@ -24,10 +24,15 @@ import os
 import re
 import socket
 import sys
+import threading
 import time
+import urllib.parse
 import urllib.request
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import store
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SKILL_DIR = REPO_ROOT / "plugins" / "shenlun-review" / "skills" / "shenlun-review-pro"
@@ -98,10 +103,40 @@ LEARN_SYSTEM = """# Web 运行环境说明
 【参考答案】（仅当学生通过费曼式复述后出示；没有则为空，届时你自己建立示范答案）
 {reference}
 
+## 学生画像（由历史学习自动沉淀，据此调整教学，不要向学生复述画像本身）
+{profile}
+- 画像里「易踩的坑」：学生再次踩到时，先温和点破（"这个坑咱们之前也遇到过"），再引导自查，不指责。
+- 画像显示已掌握的环节（如审题、找点方法）可加快带过，把轮次留给薄弱环节。
+- 画像为空或标注新学生时：按完整流程从审题开始。
+
 ## 输出格式
 聊天体，短段落；可用少量加粗标关键词；禁表格、禁编号刷屏、禁整段引用材料；
 每轮结尾一个问题。开场（学生还没说话时）先热情地用一两句话引入这道题的场景，
 然后提出第一个审题问题。"""
+
+# 学生画像提炼：每积累若干轮对话后，后台用一次轻量 LLM 调用合并维护。
+MEMO_SYSTEM = """你是学习档案管理员。根据对话片段维护学生的长期画像。
+现有画像（JSON 数组，可能为空）：
+{memories}
+最新对话片段：
+{transcript}
+只输出一个 JSON 数组（不要其他文字），每项：
+{"action":"add|update|drop","id":更新或删除时填现有条目 id,"kind":"pitfall|progress|strength|preference|background","content":"一句话，不超过60字"}
+规则：
+- background=备考身份与目标（如"在职备考2027国考""目标浙江省考""应届生"），学生提到时必须记录；有变化用 update 覆盖。
+- pitfall=学生反复犯的具体错误（如"找点时混淆做法与成效"）；重犯已有坑用 update 并填原条目 id；新坑 add。
+- progress=已掌握的方法与当前练习题型，全档案只保留一条，用 update 合并；没有则 add。
+- strength=明显做得好的点；preference=对教学方式的偏好；有把握才写。
+- 与学习无关的内容一律忽略；没有值得记的就返回 []。
+"""
+
+MEMO_LABELS = {
+    "background": "备考身份",
+    "pitfall": "易踩的坑",
+    "progress": "学习进度",
+    "strength": "做得好",
+    "preference": "教学偏好",
+}
 
 # 组装 system prompt 时按顺序读取的文档（相对 skill 目录）。
 PROMPT_DOCS = [
@@ -373,10 +408,15 @@ def fetch_paper_list() -> list:
     return items
 
 
+COOKIE_NAME = "shenlun_token"
+COOKIE_TTL = 30 * 86400
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ShenlunWeb/0.2"
+    server_version = "ShenlunWeb/0.3"
     system_prompt = ""   # 启动时注入
     default_cfg = {}     # 启动时从 .env 注入：base_url / api_key / model
+    invite_code = ""     # 启动时从 .env 注入；非空则注册需邀请码
 
     # -- 基础设施 -----------------------------------------------------------
 
@@ -384,10 +424,14 @@ class Handler(BaseHTTPRequestHandler):
         if "/api/" in (args[0] if args else ""):
             sys.stderr.write("[api] %s\n" % (fmt % args))
 
-    def _send_json(self, status: int, obj: dict):
+    def _send_json(self, status: int, obj: dict, set_cookie: str = None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if set_cookie:
+            self.send_header("Set-Cookie",
+                             "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d"
+                             % (COOKIE_NAME, set_cookie, COOKIE_TTL))
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -419,11 +463,30 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"papers": fetch_paper_list()})
             except Exception as e:  # noqa: BLE001
                 self._send_json(502, {"error": f"获取真题列表失败：{e}"})
+        elif self.path == "/api/me":
+            user = store.user_for_token(self._cookie_token() or "")
+            if user:
+                self._send_json(200, {"username": user["username"]})
+            else:
+                self._send_json(401, {"error": "未登录"})
+        elif self.path.startswith("/api/conversations"):
+            self._handle_conv_route("GET")
+        elif self.path.startswith("/api/profile"):
+            self._handle_profile_route("GET")
         else:
-            self._send_json(404, {"error": "not found"})
+            self._handle_404()
+
+    def _handle_404(self):
+        self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path == "/api/fetch-url":
+        if self.path == "/api/register":
+            self._handle_register()
+        elif self.path == "/api/login":
+            self._handle_login()
+        elif self.path == "/api/logout":
+            self._handle_logout()
+        elif self.path == "/api/fetch-url":
             self._handle_fetch_url()
         elif self.path == "/api/grab-paper":
             self._handle_grab_paper()
@@ -431,8 +494,20 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_review()
         elif self.path == "/api/learn":
             self._handle_learn()
+        elif self.path == "/api/profile/refresh":
+            self._handle_profile_refresh()
         else:
-            self._send_json(404, {"error": "not found"})
+            self._handle_404()
+
+    def do_DELETE(self):
+        if self.path == "/api/account":
+            self._handle_account_delete()
+        elif self.path.startswith("/api/conversations/"):
+            self._handle_conv_route("DELETE")
+        elif self.path.startswith("/api/profile/"):
+            self._handle_profile_route("DELETE")
+        else:
+            self._handle_404()
 
     def _read_body(self):
         try:
@@ -444,6 +519,147 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError):
             self._send_json(400, {"error": "请求体不是合法 JSON"})
             return None
+
+    # -- 认证与账号 -----------------------------------------------------------
+
+    def _cookie_token(self) -> str:
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        morsel = cookie.get(COOKIE_NAME)
+        return morsel.value if morsel else None
+
+    def _require_user(self):
+        user = store.user_for_token(self._cookie_token() or "")
+        if not user:
+            self._send_json(401, {"error": "请先登录"})
+            return None
+        return user
+
+    def _handle_register(self):
+        req = self._read_body()
+        if req is None:
+            return
+        username = (req.get("username") or "").strip()
+        password = str(req.get("password") or "")
+        invite = (req.get("invite") or "").strip()
+        if not re.fullmatch(r"[一-龥A-Za-z0-9_]{2,20}", username):
+            self._send_json(400, {"error": "用户名需 2–20 位中文/字母/数字/下划线"})
+            return
+        if len(password) < 6:
+            self._send_json(400, {"error": "密码至少 6 位"})
+            return
+        if self.invite_code and invite != self.invite_code:
+            self._send_json(400, {"error": "邀请码不正确"})
+            return
+        if not store.disk_ok():
+            self._send_json(503, {"error": "服务器存储空间不足"})
+            return
+        try:
+            uid = store.create_user(username, password)
+        except ValueError as e:
+            self._send_json(400, {"error": str(e)})
+            return
+        self._send_json(200, {"ok": True, "username": username},
+                        set_cookie=store.create_token(uid))
+
+    def _handle_login(self):
+        req = self._read_body()
+        if req is None:
+            return
+        username = (req.get("username") or "").strip()
+        row = store.verify_user(username, str(req.get("password") or ""))
+        if not row:
+            self._send_json(401, {"error": "用户名或密码不正确"})
+            return
+        self._send_json(200, {"ok": True, "username": row["username"]},
+                        set_cookie=store.create_token(row["id"]))
+
+    def _handle_logout(self):
+        raw = self._cookie_token()
+        if raw:
+            store.delete_token(raw)
+        body = b'{"ok":true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", COOKIE_NAME + "=; Path=/; HttpOnly; Max-Age=0")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _handle_account_delete(self):
+        """注销账号：级联删除全部数据并清除登录态。"""
+        user = self._require_user()
+        if not user:
+            return
+        store.delete_account(user["id"])
+        body = b'{"ok":true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", COOKIE_NAME + "=; Path=/; HttpOnly; Max-Age=0")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _handle_profile_refresh(self):
+        """退出学习等场景：对该会话立即做一次画像提炼（不看节奏）。"""
+        user = self._require_user()
+        if not user:
+            return
+        req = self._read_body()
+        if req is None:
+            return
+        conv_id = (req.get("conversationId") or "").strip()
+        if conv_id and store.get_conversation(user["id"], conv_id):
+            self._spawn_extraction_from_conv(user["id"], conv_id, force=True)
+        self._send_json(200, {"ok": True})
+
+    def _handle_me(self):
+        user = store.user_for_token(self._cookie_token() or "")
+        if user:
+            self._send_json(200, {"username": user["username"]})
+        else:
+            self._send_json(401, {"error": "未登录"})
+
+    def _handle_conv_route(self, method: str):
+        """GET 列表/详情，DELETE 删除。路径形如 /api/conversations[/<id>]。"""
+        user = self._require_user()
+        if not user:
+            return
+        parsed = urllib.parse.urlparse(self.path)
+        if method == "GET" and parsed.path == "/api/conversations":
+            q = (urllib.parse.parse_qs(parsed.query).get("q") or [""])[0].strip()[:100]
+            convs = store.list_conversations(user["id"], q)
+            self._send_json(200, {"conversations": convs})
+            return
+        m = re.fullmatch(r"/api/conversations/([0-9a-f]{32})", parsed.path)
+        if not m:
+            self._handle_404()
+            return
+        conv_id = m.group(1)
+        if method == "GET":
+            conv = store.get_conversation(user["id"], conv_id)
+            if not conv:
+                self._send_json(404, {"error": "记录不存在"})
+                return
+            conv = dict(conv)
+            if conv["kind"] == "learn":
+                conv["messages"] = store.get_messages(conv_id)
+            self._send_json(200, {"conversation": conv})
+        else:
+            ok = store.delete_conversation(user["id"], conv_id)
+            self._send_json(200, {"ok": ok})
+
+    def _handle_profile_route(self, method: str):
+        """GET 画像列表；DELETE /api/profile/<id> 软删除一条记忆。"""
+        user = self._require_user()
+        if not user:
+            return
+        m = re.fullmatch(r"/api/profile(?:/(\d+))?", urllib.parse.urlparse(self.path).path)
+        if method == "GET":
+            self._send_json(200, {"memories": store.list_memories(user["id"])})
+        else:
+            mem_id = int(m.group(1))
+            ok = store.drop_memory(user["id"], mem_id)
+            self._send_json(200, {"ok": ok})
 
     # -- 抓题模式：抓网页 + LLM 提取题目 ---------------------------------------
 
@@ -541,8 +757,8 @@ class Handler(BaseHTTPRequestHandler):
         if payload is not None:
             self._send_json(200, payload)
 
-    def _llm_extract_agent(self, user_prompt: str) -> str:
-        """默认路径：Agent SDK 非流式单轮提取。"""
+    def _llm_extract_agent(self, user_prompt: str, system_prompt: str = EXTRACT_SYSTEM) -> str:
+        """默认路径：Agent SDK 针对性提示词单轮提取。"""
         from claude_agent_sdk import ClaudeAgentOptions, query
 
         cfg = self.default_cfg
@@ -595,6 +811,9 @@ class Handler(BaseHTTPRequestHandler):
     # -- 解析/批改 -------------------------------------------------------------
 
     def _handle_review(self):
+        user = self._require_user()
+        if not user:
+            return
         req = self._read_body()
         if req is None:
             return
@@ -603,6 +822,10 @@ class Handler(BaseHTTPRequestHandler):
         if not user_text:
             self._send_json(400, {"error": "题干和给定资料不能为空"})
             return
+
+        # 落库钩子：流结束后保存记录；批改模式额外触发画像提炼
+        self._after = (lambda acc, req=req, uid=user["id"]:
+                       self._save_review(uid, req, acc))
 
         api = req.get("api") or {}
         if all(api.get(k) for k in ("baseUrl", "key", "model")):
@@ -620,6 +843,9 @@ class Handler(BaseHTTPRequestHandler):
     # -- 业务：学习模式（多轮对话） --------------------------------------------
 
     def _handle_learn(self):
+        user = self._require_user()
+        if not user:
+            return
         req = self._read_body()
         if req is None:
             return
@@ -629,9 +855,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "题干和给定资料不能为空"})
             return
 
+        # 学生画像注入：历史沉淀的坑/进度/优势/偏好，教学时据此调整
+        memories = store.list_memories(user["id"])
+        if memories:
+            lines = []
+            for m in memories[:12]:
+                label = MEMO_LABELS.get(m["kind"], "备注")
+                lines.append("- 【%s】%s" % (label, m["content"]))
+            profile_text = "\n".join(lines)
+        else:
+            profile_text = "（新学生，暂无画像，按完整流程从审题开始。）"
+
         system_prompt = LEARN_SYSTEM.replace("{question}", question) \
                                     .replace("{material}", material) \
-                                    .replace("{reference}", (req.get("reference") or "").strip())
+                                    .replace("{reference}", (req.get("reference") or "").strip()) \
+                                    .replace("{profile}", profile_text)
 
         # 前端传入完整对话历史 [{role, content}]；服务端无状态
         history = []
@@ -642,6 +880,24 @@ class Handler(BaseHTTPRequestHandler):
                 history.append({"role": role, "content": content})
         if not history:
             history = [{"role": "user", "content": "老师好，我们开始学这道题吧。"}]
+
+        # 会话持久化：流开始前就创建/校验会话，id 随 SSE 首事件下发给前端，
+        # 否则前端每轮都带空 id，服务端会重复建会话（历史只剩零散一两轮）。
+        conv_id = (req.get("conversationId") or "").strip() or None
+        user_turn = (req.get("userTurn") or "").strip()
+        if conv_id and not store.get_conversation(user["id"], conv_id):
+            conv_id = None  # 不属于该用户，按新会话处理
+        if not conv_id:
+            conv_id = store.create_conversation(
+                user["id"], "learn", title=question[:40] or "未命名题目",
+                question=question, material=material,
+                reference=(req.get("reference") or "").strip(),
+            )
+        self._first_event = {"c": conv_id}
+
+        # 流结束后的落库与画像提炼钩子
+        self._after = (lambda acc, req=req, uid=user["id"], conv_id=conv_id, user_turn=user_turn:
+                       self._save_learn(uid, req, conv_id, user_turn, acc))
 
         api = req.get("api") or {}
         if all(api.get(k) for k in ("baseUrl", "key", "model")):
@@ -698,8 +954,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        first = getattr(self, "_first_event", None)
+        self._first_event = None
+        if first:
+            self.wfile.write(sse_event(first))
+            self.wfile.flush()
+
+        self._acc = ""  # 累积正文，流结束后交给 _after 落库
 
         def emit(obj):
+            if obj.get("t"):
+                self._acc += obj["t"]
             self.wfile.write(sse_event(obj))
             self.wfile.flush()
 
@@ -740,6 +1005,8 @@ class Handler(BaseHTTPRequestHandler):
             asyncio.run(drain())
         except Exception as e:  # noqa: BLE001 — 边界处统一转为 SSE 错误事件
             emit({"e": f"Agent 调用失败：{e}"})
+        finally:
+            self._run_after()
 
     # -- 业务：OpenAI 兼容路径（前端自带配置时使用） ---------------------------
 
@@ -765,8 +1032,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        first = getattr(self, "_first_event", None)
+        self._first_event = None
+        if first:
+            self.wfile.write(sse_event(first))
+            self.wfile.flush()
+
+        self._acc = ""  # 累积正文，流结束后交给 _after 落库
 
         def emit(obj):
+            if obj.get("t"):
+                self._acc += obj["t"]
             self.wfile.write(sse_event(obj))
             self.wfile.flush()
 
@@ -791,10 +1067,117 @@ class Handler(BaseHTTPRequestHandler):
                         emit({"t": delta})
             emit({"done": True})
         except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", errors="replace")[:500]
+            detail = e.read().decode("utf-8", errors="replace")[:300]
             emit({"e": f"上游 API 返回 {e.code}：{detail}"})
         except Exception as e:  # noqa: BLE001
             emit({"e": f"请求上游 API 失败：{e}"})
+        finally:
+            self._run_after()
+
+    # -- 落库与画像提炼 ---------------------------------------------------------
+
+    def _run_after(self):
+        """流结束后统一调用 _after 钩子（落库/提炼）。"""
+        after = getattr(self, "_after", None)
+        self._after = None
+        if after:
+            try:
+                after(self._acc)
+            except store.Full as e:
+                print("[save] %s" % e, file=sys.stderr)
+            except Exception as e:  # noqa: BLE001
+                print("[save] 落库失败：%s" % e, file=sys.stderr)
+
+    def _save_review(self, uid: int, req: dict, output: str):
+        """解析/批改完成后落库；批改模式额外触发画像提炼。"""
+        if not (output or "").strip():
+            return
+        question = (req.get("question") or "").strip()
+        mode = req.get("mode") or "analyze"
+        store.create_conversation(
+            uid, "review", title=question[:40] or "未命名题目", question=question,
+            mode=mode, material=(req.get("material") or "").strip(),
+            reference=(req.get("reference") or "").strip(),
+            answer=(req.get("answer") or "").strip(), output=output,
+        )
+        if mode == "grade" and (req.get("answer") or "").strip():
+            transcript = ("题干：%s\n考生作答：%s\n批改结论（节选）：%s"
+                          % (question, (req.get("answer") or "")[:1500], output[:2000]))
+        else:
+            # 解析模式也提炼：题干与讲什么题型/身份相关，是进度与背景的重要来源
+            transcript = ("学生请求解析的题干：%s\n解析讲到的考点（节选）：%s"
+                          % (question, output[:1500]))
+        self._spawn_extraction(uid, transcript)
+
+    def _save_learn(self, uid: int, req: dict, conv_id, user_turn: str, reply: str):
+        """会话已在 _handle_learn 中创建；这里只追加本轮消息并触发提炼。"""
+        if not conv_id or not (user_turn or reply or "").strip():
+            return
+        if user_turn:
+            store.append_message(conv_id, "user", user_turn)
+        if reply:
+            store.append_message(conv_id, "assistant", reply)
+        self._spawn_extraction_from_conv(uid, conv_id)
+
+    # -- 画像提炼（后台线程，失败只记日志不影响主流程） --------------------------
+
+    def _spawn_extraction_from_conv(self, uid: int, conv_id: str, force: bool = False) -> None:
+        msgs = store.get_messages(conv_id)
+        n = len(msgs)
+        if force:
+            pass  # 退出学习等场景：只要有内容就立即提炼
+        elif n < 3:
+            return  # 消息数 1,3,5,7…（开场为老师）；第 2 回合起每轮提炼，
+            # 避免节奏空洞（之前 3,7,11 的间隔会让停在中间的会话永不触发）
+        tail = msgs[-6:]
+        transcript = "\n\n".join(("学生：" if m["role"] == "user" else "老师：") + m["content"]
+                                 for m in tail)
+        self._spawn_extraction(uid, transcript)
+
+    def _spawn_extraction(self, uid: int, transcript: str):
+        if not all(self.default_cfg.get(k) for k in ("base_url", "api_key", "model")):
+            return  # 提炼仅走服务端默认模型，BYO 用户跳过
+        threading.Thread(target=self._extract_memories,
+                         args=(uid, transcript), daemon=True).start()
+
+    def _extract_memories(self, uid: int, transcript: str):
+        try:
+            memories = store.list_memories(uid)
+            mem_json = json.dumps(
+                [{"id": m["id"], "kind": m["kind"], "content": m["content"]}
+                 for m in memories],
+                ensure_ascii=False,
+            )
+            user_prompt = MEMO_SYSTEM.replace("{memories}", mem_json) \
+                                    .replace("{transcript}", transcript[:6000])
+            user_prompt = ("请根据现有画像与对话片段，输出 JSON 数组：\n\n" + user_prompt)
+            raw = self._llm_extract_agent(user_prompt, system_prompt=MEMO_SYSTEM)
+            raw = raw.strip()
+            lo, hi = raw.find("["), raw.rfind("]")
+            if lo < 0 or hi <= lo:
+                return
+            ops = json.loads(raw[lo:hi + 1])
+            self._apply_memory_ops(uid, ops)
+        except Exception as e:  # noqa: BLE001
+            print("[memo] 提炼失败：%s" % e, file=sys.stderr)
+
+    def _apply_memory_ops(self, uid: int, ops: list):
+        for op in (ops or [])[:10]:
+            action = op.get("action")
+            kind = op.get("kind")
+            content = (op.get("content") or "").strip()
+            if kind not in MEMO_LABELS or not content:
+                continue
+            try:
+                mem_id = int(op.get("id") or 0)
+            except (TypeError, ValueError):
+                mem_id = 0
+            if action == "add":
+                store.add_memory(uid, kind, content)
+            elif action == "update" and mem_id:
+                store.touch_memory(uid, mem_id, content)
+            elif action == "drop" and mem_id:
+                store.drop_memory(uid, mem_id)
 
     # -- 静态文件 ------------------------------------------------------------
 
@@ -806,6 +1189,7 @@ class Handler(BaseHTTPRequestHandler):
         body = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")  # 前端迭代期禁缓存
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -828,7 +1212,15 @@ def main():
     parser = argparse.ArgumentParser(description="申论复盘 Web 版后端")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--skill-dir", type=Path, default=DEFAULT_SKILL_DIR)
+    parser.add_argument("--vacuum", action="store_true",
+                        help="压缩历史库并退出（运维命令）")
     args = parser.parse_args()
+
+    data_dir = os.environ.get("SHENLUN_DATA_DIR") or str(Path(__file__).resolve().parent / "data")
+    if args.vacuum:
+        store.init(data_dir)
+        print("清理完成，库大小: %.1f MB" % store.vacuum())
+        sys.exit(0)
 
     if not args.skill_dir.exists():
         sys.exit(f"未找到 Skill 目录: {args.skill_dir}")
@@ -839,6 +1231,18 @@ def main():
     Handler.default_cfg = agent_cfg_from_env(load_dotenv(ENV_FILE))
     ready = all(Handler.default_cfg.get(k) for k in ("base_url", "api_key", "model"))
     print(f"内置默认模型：{'已配置 (' + Handler.default_cfg.get('model', '') + ')' if ready else '未配置（需填写 webapp/.env 或用页面设置）'}")
+
+    # 持久层初始化 + 配置覆盖
+    env = load_dotenv(ENV_FILE)
+    store.configure(
+        days=int(env.get("SHENLUN_HISTORY_DAYS") or 180),
+        max_mb=int(env.get("SHENLUN_HISTORY_MAX_MB") or 512),
+    )
+    Handler.invite_code = env.get("SHENLUN_INVITE_CODE") or ""
+    store.init(data_dir)
+    summary = store.enforce_limits()
+    print(f"数据目录：{data_dir}（库 {store.db_size_mb():.1f} MB）"
+          + (f"，启动清理：{summary}" if any(summary.values()) else ""))
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     print(f"本机访问:   http://localhost:{args.port}")

@@ -10,4 +10,6 @@ services:
     volumes:
       # Key 的唯一合法位置：服务器上的 webapp/.env，只读挂载，不进镜像
       - ./webapp/.env:/app/webapp/.env:ro
+      # 历史会话/账号/画像 SQLite 库的持久化位置
+      - ./webapp/data:/app/webapp/data
     restart: unless-stopped

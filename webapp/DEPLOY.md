@@ -19,9 +19,18 @@ cat > .env <<'EOF'
 SHENLUN_DEFAULT_BASE_URL=https://你的中转地址
 SHENLUN_DEFAULT_API_KEY=sk-xxxx
 SHENLUN_DEFAULT_MODEL=你的模型名
+# 可选：设置后注册必须携带邀请码（建议公网部署时设置，防止陌生人消耗你的额度）
+SHENLUN_INVITE_CODE=
+# 可选：历史轮转（保留天数，0=永久）与库体积兜底（MB）
+SHENLUN_HISTORY_DAYS=180
+SHENLUN_HISTORY_MAX_MB=512
 EOF
 chmod 600 .env
 cd ..
+
+# 3.5 准备数据目录（账号/历史/学生画像的 SQLite 库放这里，容器内以 appuser=uid 1000 写入）
+mkdir -p webapp/data
+chown 1000:1000 webapp/data   # 若无 root 权限可用 sudo，或 chmod 777（仅限可信服务器）
 
 # 4. 构建并启动（默认走清华 PyPI 镜像，国内服务器构建不卡）
 docker compose up -d --build

@@ -8,6 +8,7 @@
   var statusEl = $("result-status");
   var btnCopy = $("btn-copy");
   var btnNew = $("btn-new");
+  var btnRefill = $("btn-refill");
   var btnSubmit = null; // 当前面板的提交按钮，提交时取
 
   /* ---- settings (localStorage) ---- */
@@ -41,6 +42,7 @@
     $("cfg-base").value = cfg.baseUrl;
     $("cfg-key").value = cfg.key;
     $("cfg-model").value = cfg.model;
+    $("settings-username").textContent = me ? me.username : "未登录";
     mask.classList.remove("hidden");
   }
 
@@ -49,6 +51,7 @@
   }
 
   $("btn-settings").addEventListener("click", openSettings);
+  $("btn-settings-close").addEventListener("click", closeSettings);
   $("cfg-cancel").addEventListener("click", closeSettings);
   $("cfg-save").addEventListener("click", function () {
     cfg.baseUrl = $("cfg-base").value.trim().replace(/\/+$/, "");
@@ -317,6 +320,7 @@
     resultCard.classList.remove("hidden");
     btnSubmit.disabled = true;
     btnCopy.classList.add("hidden");
+    btnRefill.classList.add("hidden");
     startWaitingUi();
     resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
 
@@ -420,6 +424,354 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
+  /* ======================================================================
+     账号与历史会话 / 学生画像
+     ------------------------------------------------------------------
+     登录态由服务端 HttpOnly Cookie 维护；历史与学生画像按账号隔离，
+     全部走真实接口。画像由服务端在学练/批改后自动提炼（见 server.py）。
+     ====================================================================== */
+  var PREVIEW = false;
+
+  /* ---- 账号：登录门 / 登录 / 注册 / 退出 ---- */
+  var userGreeting = $("user-greeting");
+  var GREETINGS = ["你好", "加油", "今天也要坚持练", "滴水穿石", "稳住，我们能赢"];
+  var authMask = $("auth-mask");
+  var authMode = "login"; // login | register
+  var me = null;          // {username} 已登录用户
+
+  function authError(msg) {
+    var el = $("auth-error");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+
+  function showAuth(mode, message) {
+    authMode = mode || "login";
+    $("tab-login").classList.toggle("active", authMode === "login");
+    $("tab-register").classList.toggle("active", authMode === "register");
+    $("auth-register-extra").classList.toggle("hidden", authMode !== "register");
+    $("btn-auth-go").textContent = authMode === "login" ? "登录" : "注册并登录";
+    if (message) authError(message);
+    else $("auth-error").classList.add("hidden");
+    authMask.classList.remove("hidden");
+  }
+
+  function afterLogin(name) {
+    me = { username: name };
+    userGreeting.textContent = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
+      + "，" + name + "！";
+    userGreeting.classList.remove("hidden");
+    // 历史入口脉冲引导；点开一次后停止
+    var histBtn = $("btn-history");
+    histBtn.classList.add("attention");
+    histBtn.classList.remove("hidden");
+    authMask.classList.add("hidden");
+  }
+
+  function setAuthBusy(busy) {
+    var go = $("btn-auth-go");
+    go.disabled = busy;
+    go.textContent = (authMode === "login" ? "登录" : "注册并登录") + (busy ? "…" : "");
+  }
+
+  function authSubmit() {
+    var username = $("auth-user").value.trim();
+    var password = $("auth-pass").value;
+    if (username.length < 2) { authError("请输入用户名（2–20 位）"); return; }
+    if (password.length < 6) { authError("密码至少 6 位"); return; }
+    if (authMode === "register" && password !== $("auth-pass2").value) {
+      authError("两次输入的密码不一致");
+      return;
+    }
+    var invite = $("auth-invite").value.trim();
+    setAuthBusy(true);
+    var url = authMode === "login" ? "/api/login" : "/api/register";
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username, password: password, invite: invite })
+    }).then(function (r) {
+      if (!r.ok) {
+        return r.json().then(function (err) {
+          throw new Error(err.error || ("HTTP " + r.status));
+        });
+      }
+      return r.json();
+    }).then(function () {
+      setAuthBusy(false);
+      afterLogin(username);
+    }).catch(function (err) {
+      setAuthBusy(false);
+      authError(err.message);
+    });
+  }
+
+  $("tab-login").addEventListener("click", function () { showAuth("login"); });
+  $("tab-register").addEventListener("click", function () { showAuth("register"); });
+  $("btn-auth-go").addEventListener("click", authSubmit);
+  $("auth-pass2").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") authSubmit();
+  });
+
+  /* ---- 退出登录 / 注销账号（入口在设置弹层） ---- */
+  function doLocalLogout() {
+    me = null;
+    userGreeting.classList.add("hidden");
+    $("btn-history").classList.add("hidden");
+    closeSettings();
+    showAuth("login");
+  }
+
+  $("btn-logout").addEventListener("click", function () {
+    if (!confirm("退出登录？历史记录仍保存在服务器，下次登录还能看到。")) return;
+    fetch("/api/logout", { method: "POST" }).then(doLocalLogout);
+  });
+
+  $("btn-account-delete").addEventListener("click", function () {
+    if (!confirm("确定注销账号？全部历史记录与学习画像将被删除。")) return;
+    if (!confirm("再次确认：此操作不可恢复，真的要注销吗？")) return;
+    fetch("/api/account", { method: "DELETE" }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      doLocalLogout();
+    }).catch(function (err) {
+      alert("注销失败：" + err.message);
+    });
+  });
+
+  /* ---- 历史会话 ---- */
+  var historyMask = $("history-mask");
+  var convsCache = [];
+  var viewedConv = null; // 当前正在回看的会话（“填回表单”用）
+
+  function fetchConvs(q) {
+    fetch("/api/conversations?q=" + encodeURIComponent(q || "")).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (data) {
+      convsCache = data.conversations || [];
+      renderConvs(convsCache);
+    }).catch(function (err) {
+      $("history-status").textContent = "获取历史失败：" + err.message;
+    });
+  }
+
+  // 预览模式本地过滤；真实接口的 q 由服务端过滤
+  function renderConvs(items) {
+    var list = $("history-list");
+    list.innerHTML = "";
+    if (!items.length) {
+      var empty = document.createElement("div");
+      empty.className = "history-empty";
+      empty.innerHTML = "还没有历史记录<br>完成一次解析/批改或学习练习后，这里会自动出现";
+      list.appendChild(empty);
+    }
+    items.forEach(function (conv) {
+      var item = document.createElement("div");
+      item.className = "conv-item";
+      var badge = conv.kind === "learn" ? "🎓 学习" :
+        (conv.mode === "grade" ? "✅ 批改" : "📖 解析");
+      item.innerHTML = "<div class='conv-title'>" + esc(conv.title) + "</div>"
+        + "<div class='conv-meta'>"
+        + "<span class='conv-badge'>" + badge + "</span>"
+        + "<span class='conv-time'>" + relTime((conv.updated_at || conv.created_at) * 1000) + "</span>"
+        + "</div>"
+        + "<button type='button' class='conv-del' aria-label='删除'>🗑</button>";
+      item.addEventListener("click", function () { viewConv(conv.id); });
+      item.querySelector(".conv-del").addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (!confirm("删除这条历史记录？删除后无法恢复。")) return;
+        fetch("/api/conversations/" + conv.id, { method: "DELETE" }).then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          convsCache = convsCache.filter(function (c) { return c.id !== conv.id; });
+          renderConvs(convsCache);
+        }).catch(function (err) {
+          alert("删除失败：" + err.message);
+        });
+      });
+      list.appendChild(item);
+    });
+    $("history-status").textContent = items.length
+      ? items.length + " 条记录 · 仅显示当前账号"
+      : "仅显示当前登录账号的记录";
+  }
+
+  function openHistory() {
+    $("btn-history").classList.remove("attention");
+    historyMask.classList.remove("hidden");
+    $("history-filter").value = "";
+    fetchConvs("");
+  }
+
+  function closeHistory() {
+    historyMask.classList.add("hidden");
+  }
+
+  $("btn-history").addEventListener("click", openHistory);
+  $("btn-history-close").addEventListener("click", closeHistory);
+  historyMask.addEventListener("click", function (e) {
+    if (e.target === historyMask) closeHistory();
+  });
+  $("history-filter").addEventListener("input", function () {
+    fetchConvs(this.value);
+  });
+
+  function viewConv(id) {
+    // 列表条目只有标题/时间，正文与消息需要按详情接口取
+    fetch("/api/conversations/" + id).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (data) {
+      var conv = data.conversation;
+      if (!conv) return;
+      if (conv.kind === "learn") openLearnFromHistory(conv);
+      else viewReview(conv);
+    }).catch(function (err) {
+      alert("加载历史记录失败：" + err.message);
+    });
+  }
+
+  function viewReview(conv) {
+    viewedConv = conv;
+    $("learn-section").classList.add("hidden");
+    resultCard.classList.remove("hidden");
+    statusEl.textContent = "历史回看 · 只读";
+    render(conv.output || "（该记录没有保存到正文）");
+    btnCopy.classList.remove("hidden");
+    btnRefill.classList.remove("hidden");
+    closeHistory();
+    resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function openLearnFromHistory(conv) {
+    viewedConv = conv;
+    resultCard.classList.add("hidden");
+    learnState = {
+      question: conv.question || conv.title,
+      material: conv.material || "",
+      reference: conv.reference || "",
+      history: (conv.messages || []).slice(),
+      conversationId: conv.id,
+    };
+    $("chat-log").innerHTML = "";
+    (conv.messages || []).forEach(function (m) { chatBubble(m.role, m.content); });
+    $("learn-section").classList.remove("hidden");
+    closeHistory();
+    learnSectionScroll();
+  }
+
+  /* ---- 填回表单（解析/批改记录回看后可修改重跑） ---- */
+  btnRefill.addEventListener("click", function () {
+    var conv = viewedConv;
+    if (!conv) return;
+    var target = conv.mode === "grade" ? panels.grade : panels.analyze;
+    switchToPanel(conv.mode === "grade" ? "grade" : "analyze");
+    target.querySelector('[data-field="question"]').value = conv.question || "";
+    target.querySelector('[data-field="material"]').value = conv.material || "";
+    var refField = target.querySelector('[data-field="reference"]');
+    if (refField) refField.value = conv.reference || "";
+    if (conv.mode === "grade") {
+      target.querySelector('[data-field="answer"]').value = conv.answer || "";
+    }
+    resultCard.classList.add("hidden");
+    btnRefill.classList.add("hidden");
+    viewedConv = null;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  /* ---- 工具：相对时间 / HTML 转义 ---- */
+  function relTime(ts) {
+    var diff = Date.now() - ts;
+    if (diff < 60e3) return "刚刚";
+    if (diff < 3.6e6) return Math.floor(diff / 60e3) + " 分钟前";
+    if (diff < 8.64e7) return Math.floor(diff / 3.6e6) + " 小时前";
+    if (diff < 6.048e8) return Math.floor(diff / 8.64e7) + " 天前";
+    var d = new Date(ts);
+    var sameYear = d.getFullYear() === new Date().getFullYear();
+    var s = (d.getMonth() + 1) + "月" + d.getDate() + "日";
+    return sameYear ? s : d.getFullYear() + "年" + s;
+  }
+
+  function esc(s) {
+    return String(s || "").replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
+  /* ---- 启动：检查登录态 ---- */
+  function checkAuth() {
+    fetch("/api/me").then(function (r) {
+      if (!r.ok) throw new Error("unauthorized");
+      return r.json();
+    }).then(function (data) {
+      afterLogin(data.username);
+    }).catch(function () {
+      showAuth("login");
+    });
+  }
+  checkAuth();
+
+  /* ---- 学生画像面板 ---- */
+  var profileMask = $("profile-mask");
+  var MEMO_LABELS = {
+    background: "🧭 备考身份",
+    pitfall: "⚠️ 易踩的坑",
+    progress: "📈 学习进度",
+    strength: "💪 做得好",
+    preference: "🎯 教学偏好",
+  };
+
+  function renderMemories(items) {
+    var list = $("profile-list");
+    list.innerHTML = "";
+    if (!items.length) {
+      var empty = document.createElement("div");
+      empty.className = "history-empty";
+      empty.innerHTML = "画像还没建立<br>完成几轮学习或一次批改后，老师会自动总结你的画像";
+      list.appendChild(empty);
+      return;
+    }
+    items.forEach(function (m) {
+      var item = document.createElement("div");
+      item.className = "memory-item";
+      item.innerHTML = "<div class='conv-title'>" + esc(m.content) + "</div>"
+        + "<div class='conv-meta'>"
+        + "<span class='conv-badge'>" + (MEMO_LABELS[m.kind] || "备注") + " ×" + Math.round(m.weight) + "</span>"
+        + "<span class='conv-time'>" + relTime(m.updated_at * 1000) + "</span>"
+        + "</div>"
+        + "<button type='button' class='conv-del' aria-label='删除'>🗑</button>";
+      item.querySelector(".conv-del").addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (!confirm("删除这条画像条目？删除后老师不会再参考它。")) return;
+        fetch("/api/profile/" + m.id, { method: "DELETE" }).then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          item.remove();
+        }).catch(function (err) {
+          alert("删除失败：" + err.message);
+        });
+      });
+      list.appendChild(item);
+    });
+    var status = $("profile-status");
+    if (status) status.textContent = items.length + " 条画像";
+  }
+
+  function openProfile() {
+    profileMask.classList.remove("hidden");
+    fetch("/api/profile").then(function (r) { return r.json(); }).then(function (data) {
+      renderMemories(data.memories || []);
+    }).catch(function () {
+      renderMemories([]);
+    });
+  }
+
+  $("btn-profile").addEventListener("click", openProfile);
+  $("btn-profile-close").addEventListener("click", function () {
+    profileMask.classList.add("hidden");
+  });
+  profileMask.addEventListener("click", function (e) {
+    if (e.target === profileMask) profileMask.classList.add("hidden");
+  });
+
   /* ---- 学习模式（多轮对话） ---- */
   var learnState = null; // {question, material, reference, history: []}
   var learnBusy = false;
@@ -485,6 +837,8 @@
         material: learnState.material,
         reference: learnState.reference,
         history: learnState.history,
+        conversationId: learnState.conversationId || null,
+        userTurn: extraUserText || null,
         api: hasOverride ? { baseUrl: cfg.baseUrl, key: cfg.key, model: cfg.model } : null,
       }),
     }).then(function (resp) {
@@ -513,6 +867,9 @@
               }
             });
             if (!data) continue;
+            if (data.c) {
+              learnState.conversationId = data.c; // 服务端会话 id，续聊时带回
+            }
             if (data.t) {
               acc += data.t;
               renderBubble(bubble, acc);
@@ -559,6 +916,14 @@
     learnTurn("请直接给我标准答案，我想对照学习。");
   });
   $("btn-learn-exit").addEventListener("click", function () {
+    // 退出前让老师把这几轮沉淀进画像（不等下次节奏）
+    if (learnState && learnState.conversationId) {
+      fetch("/api/profile/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: learnState.conversationId }),
+      }).catch(function () { /* 提炼失败静默 */ });
+    }
     $("learn-section").classList.add("hidden");
     learnState = null;
   });
@@ -576,7 +941,6 @@
   $("btn-grab-learn").addEventListener("click", function () {
     startLearn($("pv-question").value, $("pv-material").value, $("pv-reference").value);
   });
-
 
   /* ---- 材料全屏查看 ---- */
   var fsTarget = null;
