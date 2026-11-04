@@ -109,25 +109,36 @@ LEARN_SYSTEM = """# Web 运行环境说明
 - 画像显示已掌握的环节（如审题、找点方法）可加快带过，把轮次留给薄弱环节。
 - 画像为空或标注新学生时：按完整流程从审题开始。
 
+## 近期练习（最近几次会话的动态，用于衔接；已讲过的不重复教）
+{recent}
+
 ## 输出格式
 聊天体，短段落；可用少量加粗标关键词；禁表格、禁编号刷屏、禁整段引用材料；
 每轮结尾一个问题。开场（学生还没说话时）先热情地用一两句话引入这道题的场景，
 然后提出第一个审题问题。"""
 
-# 学生画像提炼：每积累若干轮对话后，后台用一次轻量 LLM 调用合并维护。
-MEMO_SYSTEM = """你是学习档案管理员。根据对话片段维护学生的长期画像。
-现有画像（JSON 数组，可能为空）：
+# 两级画像提炼：每轮一次轻量 LLM 调用，同时产出一级摘要与二级画像更新。
+# 一级=近期记录滚动窗口（≤10条）；二级=综合窗口趋势的整体画像，不被单次表现带偏。
+MEMO_SYSTEM = """你是学习档案管理员，维护学生的两级档案。
+【一级·近期记录】每轮一条一句话摘要，系统只保留最近 10 条、自动滚动。
+【二级·整体画像】稳定的画像与偏好，必须从近期记录的【整体趋势】提炼：
+同类的坑重犯才算坑；连续多轮出现的偏好才算偏好；近期记录显示作答质量持续变好，
+progress 就要体现进步趋势，反之体现退步——看趋势，不看单次。
+现有二级画像（JSON 数组，可能为空）：
 {memories}
-最新对话片段：
+近期记录（新→旧，最多 10 条）：
+{recent}
+本轮对话片段：
 {transcript}
-只输出一个 JSON 数组（不要其他文字），每项：
-{"action":"add|update|drop","id":更新或删除时填现有条目 id,"kind":"pitfall|progress|strength|preference|background","content":"一句话，不超过60字"}
+只输出一个 JSON 对象（不要其他文字）：
+{"note":"本轮对话一句话摘要：练什么题型+学生表现，不超过50字",
+ "ops":[{"action":"add|update|drop","id":更新或删除时填现有条目 id,"kind":"background|pitfall|progress|strength|preference","content":"一句话，不超过60字"}]}
 规则：
-- background=备考身份与目标（如"在职备考2027国考""目标浙江省考""应届生"），学生提到时必须记录；有变化用 update 覆盖。
-- pitfall=学生反复犯的具体错误（如"找点时混淆做法与成效"）；重犯已有坑用 update 并填原条目 id；新坑 add。
-- progress=已掌握的方法与当前练习题型，全档案只保留一条，用 update 合并；没有则 add。
-- strength=明显做得好的点；preference=对教学方式的偏好；有把握才写。
-- 与学习无关的内容一律忽略；没有值得记的就返回 []。
+- note 每轮必写；ops 只在整体趋势支持时输出，单次波动不改画像；无需更新 ops 返回 []。
+- background=备考身份与目标（如"在职备考2027国考"），学生提到时记录，有变化 update。
+- pitfall=跨会话反复出现的具体错误；重犯用 update 并填原条目 id；新坑 add。
+- progress=整体学习阶段与趋势（如"归纳概括已从审题进到找点，正确率上升"），全档案一条，随趋势 update。
+- strength/preference 有把握才写；与学习无关的一律忽略。
 """
 
 MEMO_LABELS = {
@@ -137,6 +148,10 @@ MEMO_LABELS = {
     "strength": "做得好",
     "preference": "教学偏好",
 }
+
+# 二级画像节流：每用户累计提炼次数（内存计数，重启归零只影响一次节流边界）
+_L2_COUNTER = {}
+_L2_LOCK = threading.Lock()
 
 # 组装 system prompt 时按顺序读取的文档（相对 skill 目录）。
 PROMPT_DOCS = [
@@ -655,7 +670,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         m = re.fullmatch(r"/api/profile(?:/(\d+))?", urllib.parse.urlparse(self.path).path)
         if method == "GET":
-            self._send_json(200, {"memories": store.list_memories(user["id"])})
+            self._send_json(200, {
+                "memories": store.list_memories(user["id"]),
+                "recent": store.list_recent_notes(user["id"]),
+            })
         else:
             mem_id = int(m.group(1))
             ok = store.drop_memory(user["id"], mem_id)
@@ -866,10 +884,22 @@ class Handler(BaseHTTPRequestHandler):
         else:
             profile_text = "（新学生，暂无画像，按完整流程从审题开始。）"
 
+        # 一级记忆：近期练习摘要（滚动窗口），供教学衔接
+        notes = store.list_recent_notes(user["id"], limit=5)
+        if notes:
+            recent_text = "\n".join(
+                "- %s %s" % (time.strftime("%m-%d", time.localtime(n["created_at"])),
+                             n["summary"])
+                for n in notes
+            )
+        else:
+            recent_text = "（暂无近期练习记录）"
+
         system_prompt = LEARN_SYSTEM.replace("{question}", question) \
                                     .replace("{material}", material) \
                                     .replace("{reference}", (req.get("reference") or "").strip()) \
-                                    .replace("{profile}", profile_text)
+                                    .replace("{profile}", profile_text) \
+                                    .replace("{recent}", recent_text)
 
         # 前端传入完整对话历史 [{role, content}]；服务端无状态
         history = []
@@ -1094,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         question = (req.get("question") or "").strip()
         mode = req.get("mode") or "analyze"
-        store.create_conversation(
+        conv_id = store.create_conversation(
             uid, "review", title=question[:40] or "未命名题目", question=question,
             mode=mode, material=(req.get("material") or "").strip(),
             reference=(req.get("reference") or "").strip(),
@@ -1107,7 +1137,7 @@ class Handler(BaseHTTPRequestHandler):
             # 解析模式也提炼：题干与讲什么题型/身份相关，是进度与背景的重要来源
             transcript = ("学生请求解析的题干：%s\n解析讲到的考点（节选）：%s"
                           % (question, output[:1500]))
-        self._spawn_extraction(uid, transcript)
+        self._spawn_extraction(uid, transcript, conv_id=conv_id, force_l2=True)
 
     def _save_learn(self, uid: int, req: dict, conv_id, user_turn: str, reply: str):
         """会话已在 _handle_learn 中创建；这里只追加本轮消息并触发提炼。"""
@@ -1127,37 +1157,50 @@ class Handler(BaseHTTPRequestHandler):
         if force:
             pass  # 退出学习等场景：只要有内容就立即提炼
         elif n < 3:
-            return  # 消息数 1,3,5,7…（开场为老师）；第 2 回合起每轮提炼，
-            # 避免节奏空洞（之前 3,7,11 的间隔会让停在中间的会话永不触发）
+            return  # 消息数 1,3,5,7…（开场为老师）；第 2 回合起每轮提炼
         tail = msgs[-6:]
         transcript = "\n\n".join(("学生：" if m["role"] == "user" else "老师：") + m["content"]
                                  for m in tail)
-        self._spawn_extraction(uid, transcript)
+        self._spawn_extraction(uid, transcript, conv_id=conv_id, force_l2=force)
 
-    def _spawn_extraction(self, uid: int, transcript: str):
+    def _spawn_extraction(self, uid: int, transcript: str, conv_id=None, force_l2=False):
         if not all(self.default_cfg.get(k) for k in ("base_url", "api_key", "model")):
             return  # 提炼仅走服务端默认模型，BYO 用户跳过
         threading.Thread(target=self._extract_memories,
-                         args=(uid, transcript), daemon=True).start()
+                         args=(uid, transcript, conv_id, force_l2), daemon=True).start()
 
-    def _extract_memories(self, uid: int, transcript: str):
+    def _extract_memories(self, uid: int, transcript: str, conv_id=None, force_l2=False):
+        """两级提炼：一级摘要每轮必写（滚动 ≤10 条）；
+        二级画像只在趋势明确时更新（每 3 轮或退出/批改强制）。"""
         try:
             memories = store.list_memories(uid)
+            notes = store.list_recent_notes(uid)
             mem_json = json.dumps(
                 [{"id": m["id"], "kind": m["kind"], "content": m["content"]}
                  for m in memories],
                 ensure_ascii=False,
             )
+            recent_json = json.dumps(
+                [{"time": time.strftime("%m-%d %H:%M", time.localtime(n["created_at"])),
+                  "summary": n["summary"]} for n in notes],
+                ensure_ascii=False,
+            )
             user_prompt = MEMO_SYSTEM.replace("{memories}", mem_json) \
-                                    .replace("{transcript}", transcript[:6000])
-            user_prompt = ("请根据现有画像与对话片段，输出 JSON 数组：\n\n" + user_prompt)
-            raw = self._llm_extract_agent(user_prompt, system_prompt=MEMO_SYSTEM)
-            raw = raw.strip()
-            lo, hi = raw.find("["), raw.rfind("]")
+                                     .replace("{recent}", recent_json or "（暂无）") \
+                                     .replace("{transcript}", transcript[:6000])
+            raw = self._llm_extract_agent(user_prompt, system_prompt=MEMO_SYSTEM).strip()
+            lo, hi = raw.find("{"), raw.rfind("}")
             if lo < 0 or hi <= lo:
                 return
-            ops = json.loads(raw[lo:hi + 1])
-            self._apply_memory_ops(uid, ops)
+            data = json.loads(raw[lo:hi + 1])
+            # 一级：本轮摘要进滚动窗口（满了自动挤掉最旧）
+            store.add_recent_note(uid, conv_id, data.get("note") or "")
+            # 二级：节流更新——每 3 轮一次；退出/批改强制
+            with _L2_LOCK:
+                _L2_COUNTER[uid] = _L2_COUNTER.get(uid, 0) + 1
+                due = force_l2 or _L2_COUNTER[uid] % 3 == 0
+            if due:
+                self._apply_memory_ops(uid, data.get("ops") or [])
         except Exception as e:  # noqa: BLE001
             print("[memo] 提炼失败：%s" % e, file=sys.stderr)
 

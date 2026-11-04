@@ -759,8 +759,31 @@
     profileMask.classList.remove("hidden");
     fetch("/api/profile").then(function (r) { return r.json(); }).then(function (data) {
       renderMemories(data.memories || []);
+      renderRecent(data.recent || []);
     }).catch(function () {
       renderMemories([]);
+      renderRecent([]);
+    });
+  }
+
+  function renderRecent(items) {
+    var list = $("recent-list");
+    list.innerHTML = "";
+    if (!items.length) {
+      var empty = document.createElement("div");
+      empty.className = "history-empty";
+      empty.textContent = "还没有近期练习记录";
+      list.appendChild(empty);
+      return;
+    }
+    items.forEach(function (n) {
+      var item = document.createElement("div");
+      item.className = "memory-item";
+      item.innerHTML = "<div class='conv-title'>" + esc(n.summary) + "</div>"
+        + "<div class='conv-meta'>"
+        + "<span class='conv-time'>" + relTime(n.created_at * 1000) + "</span>"
+        + "</div>";
+      list.appendChild(item);
     });
   }
 

@@ -102,6 +102,14 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mem_user ON memories(user_id, active);
+CREATE TABLE IF NOT EXISTS recent_notes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users(id),
+  conv_id    TEXT,
+  summary    TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_note_user ON recent_notes(user_id, created_at DESC);
 """
 
 # ---- 通用工具 --------------------------------------------------------------
@@ -456,6 +464,42 @@ def delete_account(user_id: int) -> None:
             _CONN.execute("DELETE FROM messages WHERE conversation_id=?", (c["id"],))
         _CONN.execute("DELETE FROM conversations WHERE user_id=?", (user_id,))
         _CONN.execute("DELETE FROM memories WHERE user_id=?", (user_id,))
+        _CONN.execute("DELETE FROM recent_notes WHERE user_id=?", (user_id,))
         _CONN.execute("DELETE FROM auth_tokens WHERE user_id=?", (user_id,))
         _CONN.execute("DELETE FROM users WHERE id=?", (user_id,))
         _CONN.commit()
+
+
+# ---- 一级记忆：近期练习记录（固定频率写入，滚动窗口最多 10 条） --------------
+
+RECENT_NOTE_CAP = 10
+
+
+def add_recent_note(user_id: int, conv_id, summary: str) -> None:
+    """写入一条本轮摘要；超出 10 条自动滚掉最旧。摘要为空则不写。"""
+    summary = (summary or "").strip()
+    if not summary:
+        return
+    with _LOCK:
+        _CONN.execute(
+            "INSERT INTO recent_notes(user_id, conv_id, summary, created_at) VALUES(?,?,?,?)",
+            (user_id, conv_id, clip(summary, 300), time.time()),
+        )
+        _CONN.execute(
+            "DELETE FROM recent_notes WHERE user_id=? AND id NOT IN"
+            " (SELECT id FROM recent_notes WHERE user_id=?"
+            "  ORDER BY created_at DESC, id DESC LIMIT ?)",
+            (user_id, user_id, RECENT_NOTE_CAP),
+        )
+        _CONN.commit()
+
+
+def list_recent_notes(user_id: int, limit: int = RECENT_NOTE_CAP) -> list:
+    """新→旧。"""
+    with _LOCK:
+        rows = _CONN.execute(
+            "SELECT id, conv_id, summary, created_at FROM recent_notes"
+            " WHERE user_id=? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
