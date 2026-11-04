@@ -735,7 +735,7 @@
       item.className = "memory-item";
       item.innerHTML = "<div class='conv-title'>" + esc(m.content) + "</div>"
         + "<div class='conv-meta'>"
-        + "<span class='conv-badge'>" + (MEMO_LABELS[m.kind] || "备注") + " ×" + Math.round(m.weight) + "</span>"
+        + "<span class='conv-badge'>" + (MEMO_LABELS[m.kind] || "备注") + "</span>"
         + "<span class='conv-time'>" + relTime(m.updated_at * 1000) + "</span>"
         + "</div>"
         + "<button type='button' class='conv-del' aria-label='删除'>🗑</button>";

@@ -26,7 +26,7 @@ HISTORY_DAYS = 180
 HISTORY_MAX_MB = 512
 MIN_FREE_MB = 200
 MAX_FIELD_BYTES = 200 * 1024
-MEMORY_CAP = 16
+MEMORY_CAP = 8
 TRUNC_MARK = "\n[内容过长已截断]"
 
 
@@ -329,39 +329,35 @@ def count_conversations(user_id: int) -> int:
 # ---- 学生画像（长期记忆） ---------------------------------------------------
 
 def list_memories(user_id: int) -> list:
-    """活跃条目，重的（重犯次数多）排前面。"""
+    """当前画像（整体重写模型，最多 8 条，按写入顺序）。"""
     with _LOCK:
         rows = _CONN.execute(
             "SELECT id, kind, content, weight, updated_at FROM memories"
-            " WHERE user_id=? AND active=1 ORDER BY weight DESC, updated_at DESC LIMIT ?",
+            " WHERE user_id=? AND active=1 ORDER BY id LIMIT ?",
             (user_id, MEMORY_CAP),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def add_memory(user_id: int, kind: str, content: str) -> None:
+def replace_memories(user_id: int, entries: list) -> None:
+    """整体重写画像：硬删旧条目，写入新集合（≤MEMORY_CAP 条）。
+    物理行数恒定有界，画像永远是最新的精炼版本。"""
+    seen = set()
+    rows = []
+    for e in (entries or [])[:MEMORY_CAP]:
+        kind = (e.get("kind") or "").strip()
+        content = (e.get("content") or "").strip()
+        if kind in ("background", "pitfall", "progress", "strength", "preference") \
+                and content and content not in seen:
+            seen.add(content)
+            rows.append((user_id, kind, clip(content, 300), 1.0, 1, time.time(), time.time()))
     with _LOCK:
-        _CONN.execute(
+        _CONN.execute("DELETE FROM memories WHERE user_id=?", (user_id,))
+        _CONN.executemany(
             "INSERT INTO memories(user_id, kind, content, weight, active, created_at, updated_at)"
-            " VALUES(?,?,?,1,1,?,?)",
-            (user_id, kind, clip(content, 300), time.time(), time.time()),
+            " VALUES(?,?,?,?,?,?,?)",
+            rows,
         )
-        _CONN.commit()
-
-
-def touch_memory(user_id: int, mem_id: int, content: str = None) -> None:
-    """重犯：weight+1 并刷新内容与时间。"""
-    with _LOCK:
-        if content:
-            _CONN.execute(
-                "UPDATE memories SET weight=weight+1, content=?, updated_at=? WHERE id=? AND user_id=?",
-                (clip(content, 300), time.time(), mem_id, user_id),
-            )
-        else:
-            _CONN.execute(
-                "UPDATE memories SET weight=weight+1, updated_at=? WHERE id=? AND user_id=?",
-                (time.time(), mem_id, user_id),
-            )
         _CONN.commit()
 
 
@@ -398,6 +394,11 @@ def enforce_limits() -> dict:
     summary = {"aged": 0, "capped": 0, "vacuumed": False}
     now = time.time()
     with _LOCK:
+        # 0) 画像表防膨胀：硬删超过 60 天的失活条目
+        _CONN.execute(
+            "DELETE FROM memories WHERE active=0 AND updated_at < ?",
+            (now - 60 * 86400,),
+        )
         # 1) 按龄（先删子表消息，再删会话，避免外键约束失败）
         if HISTORY_DAYS > 0:
             olds = _CONN.execute(

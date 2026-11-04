@@ -132,12 +132,15 @@ progress 就要体现进步趋势，反之体现退步——看趋势，不看�
 {transcript}
 只输出一个 JSON 对象（不要其他文字）：
 {"note":"本轮对话一句话摘要：练什么题型+学生表现，不超过50字",
- "ops":[{"action":"add|update|drop","id":更新或删除时填现有条目 id,"kind":"background|pitfall|progress|strength|preference","content":"一句话，不超过60字"}]}
+ "profile":[{"kind":"background|pitfall|progress|strength|preference","content":"一句话，不超过60字"}]}
 规则：
-- note 每轮必写；ops 只在整体趋势支持时输出，单次波动不改画像；无需更新 ops 返回 []。
-- background=备考身份与目标（如"在职备考2027国考"），学生提到时记录，有变化 update。
-- pitfall=跨会话反复出现的具体错误；重犯用 update 并填原条目 id；新坑 add。
-- progress=整体学习阶段与趋势（如"归纳概括已从审题进到找点，正确率上升"），全档案一条，随趋势 update。
+- note 每轮必写。
+- profile 是【整体重写】的最新画像：综合现有画像与近期记录趋势精炼而成，
+  最多 8 条、能合并就合并、拿不准的不写。单次波动不改变画像，趋势才改变。
+  无需任何更新时 profile 返回 []（表示画像维持原样，服务端不会清空）。
+- background=备考身份与目标（如"在职备考2027国考"）。
+- pitfall=跨会话反复出现的具体错误（趋势显示已克服就从画像中去掉）。
+- progress=整体学习阶段与趋势，只保留一条（如"归纳概括已从审题进到找点，正确率上升"）。
 - strength/preference 有把握才写；与学习无关的一律忽略。
 """
 
@@ -149,7 +152,9 @@ MEMO_LABELS = {
     "preference": "教学偏好",
 }
 
-# 二级画像节流：每用户累计提炼次数（内存计数，重启归零只影响一次节流边界）
+# 二级画像节流：每用户累计提炼次数（内存计数，重启归零只影响一次节流边界）。
+# 每 L2_EVERY 次一级提炼才整体重写一次画像；退出学习时强制。
+L2_EVERY = 6
 _L2_COUNTER = {}
 _L2_LOCK = threading.Lock()
 
@@ -877,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
         memories = store.list_memories(user["id"])
         if memories:
             lines = []
-            for m in memories[:12]:
+            for m in memories[:8]:
                 label = MEMO_LABELS.get(m["kind"], "备注")
                 lines.append("- 【%s】%s" % (label, m["content"]))
             profile_text = "\n".join(lines)
@@ -1119,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
                 print("[save] 落库失败：%s" % e, file=sys.stderr)
 
     def _save_review(self, uid: int, req: dict, output: str):
-        """解析/批改完成后落库；批改模式额外触发画像提炼。"""
+        """解析/批改完成后落库，并写一条一级摘要（不强制改二级画像）。"""
         if not (output or "").strip():
             return
         question = (req.get("question") or "").strip()
@@ -1137,7 +1142,8 @@ class Handler(BaseHTTPRequestHandler):
             # 解析模式也提炼：题干与讲什么题型/身份相关，是进度与背景的重要来源
             transcript = ("学生请求解析的题干：%s\n解析讲到的考点（节选）：%s"
                           % (question, output[:1500]))
-        self._spawn_extraction(uid, transcript, conv_id=conv_id, force_l2=True)
+        # 解析/批改只写一级摘要，不强制改二级画像（避免高频重写）
+        self._spawn_extraction(uid, transcript, conv_id=conv_id, force_l2=False)
 
     def _save_learn(self, uid: int, req: dict, conv_id, user_turn: str, reply: str):
         """会话已在 _handle_learn 中创建；这里只追加本轮消息并触发提炼。"""
@@ -1195,32 +1201,16 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw[lo:hi + 1])
             # 一级：本轮摘要进滚动窗口（满了自动挤掉最旧）
             store.add_recent_note(uid, conv_id, data.get("note") or "")
-            # 二级：节流更新——每 3 轮一次；退出/批改强制
+            # 二级：节流整体重写——每 3 轮一次；退出/批改强制。
+            # 空数组表示"维持原样"，不清空画像。
             with _L2_LOCK:
                 _L2_COUNTER[uid] = _L2_COUNTER.get(uid, 0) + 1
-                due = force_l2 or _L2_COUNTER[uid] % 3 == 0
-            if due:
-                self._apply_memory_ops(uid, data.get("ops") or [])
+                due = force_l2 or _L2_COUNTER[uid] % L2_EVERY == 0
+            profile = data.get("profile")
+            if due and isinstance(profile, list) and profile:
+                store.replace_memories(uid, profile)
         except Exception as e:  # noqa: BLE001
             print("[memo] 提炼失败：%s" % e, file=sys.stderr)
-
-    def _apply_memory_ops(self, uid: int, ops: list):
-        for op in (ops or [])[:10]:
-            action = op.get("action")
-            kind = op.get("kind")
-            content = (op.get("content") or "").strip()
-            if kind not in MEMO_LABELS or not content:
-                continue
-            try:
-                mem_id = int(op.get("id") or 0)
-            except (TypeError, ValueError):
-                mem_id = 0
-            if action == "add":
-                store.add_memory(uid, kind, content)
-            elif action == "update" and mem_id:
-                store.touch_memory(uid, mem_id, content)
-            elif action == "drop" and mem_id:
-                store.drop_memory(uid, mem_id)
 
     # -- 静态文件 ------------------------------------------------------------
 
